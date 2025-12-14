@@ -119,7 +119,7 @@ function updateElement(data) {
             const box = document.createElement('div');
             box.className = `device-box ${statusMeta.cls}`;
             box.dataset.id = id;
-            box.innerHTML = `<div class="device-box-head"><div><div class="device-title">${escapeHtml(device.show_name || id)}</div><div class="device-sub">ID: ${escapeHtml(id)}</div></div><span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span></div>` +
+            box.innerHTML = `<div class="device-box-head"><div><div class="device-title">${escapeHtml(device.show_name || id)}</div></div><span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span></div>` +
                 `<div class="device-meta-row"><div class="device-app-line">${appLine}</div><div class="battery-inline"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg><span>${batteryText}</span></div>` +
                 `<button class="expand-toggle" aria-expanded="false" aria-label="展开设备详情"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9l6 6 6-6" stroke="#E6EEF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>` +
                 `<div id="expand-${id}" class="card-expand-body" aria-hidden="true"></div>`;
@@ -159,12 +159,13 @@ function updateElement(data) {
     }
 
     async function renderDeviceDetail(id, device) {
-        if (!deviceDetailEl) return;
         const show = device.show_name || id;
         const using = device.using ? '使用中' : '未使用';
         const app = device.app_name || '';
         const appHtml = app ? `<span class="current-app ${device.using? 'running-app':''}" title="${escapeHtml(app)}">${escapeHtml(sliceText(app,60))}</span>` : '<span class="muted">—</span>';
-        deviceDetailEl.innerHTML = `<div class="info-box"><h4>${escapeHtml(show)}</h4><div class="meta"><span class="label">当前应用：</span>${appHtml} <span class="muted">${escapeHtml(using)}</span></div><div id="summary-wrap"><div class="loading">加载统计...</div></div><div id="history-wrap"><div class="loading">加载历史...</div></div></div>`;
+        if (deviceDetailEl) {
+            deviceDetailEl.innerHTML = `<div class="info-box"><h4>${escapeHtml(show)}</h4><div class="meta"><span class="label">当前应用：</span>${appHtml} <span class="muted">${escapeHtml(using)}</span></div><div id="summary-wrap"><div class="loading">加载统计...</div></div><div id="history-wrap"><div class="loading">加载历史...</div></div></div>`;
+        }
         try {
             const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
             const jd = await resp.json();
@@ -243,11 +244,15 @@ function updateElement(data) {
                         document.getElementById('history-wrap').appendChild(tl);
                     }
                 }
-            } else {
-                document.getElementById('history-wrap').innerHTML = '<div class="muted">无历史数据</div>';
+            } else if (deviceDetailEl) {
+                const wrap = document.getElementById('history-wrap');
+                if (wrap) wrap.innerHTML = '<div class="muted">无历史数据</div>';
             }
         } catch (e) {
-            document.getElementById('history-wrap').innerHTML = '<div class="muted">获取历史失败</div>';
+            if (deviceDetailEl) {
+                const wrap = document.getElementById('history-wrap');
+                if (wrap) wrap.innerHTML = '<div class="muted">获取历史失败</div>';
+            }
         }
     }
 
