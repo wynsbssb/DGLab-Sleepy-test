@@ -1,6 +1,10 @@
-// 获取 base url
-const routerIndex = window.location.href.indexOf('?');
-const baseUrl = window.location.href.slice(0, routerIndex > 0 ? routerIndex : window.location.href.length);
+// 获取 base url（保留目录部分，确保请求路径正确）
+const currentUrl = new URL(window.location.href);
+const currentPath = currentUrl.pathname;
+const normalizedPath = currentPath.endsWith('/')
+    ? currentPath
+    : currentPath.replace(/[^/]+$/, '/');
+const baseUrl = `${currentUrl.origin}${normalizedPath}`;
 
 // sleep (只能加 await 在 async 函数中使用)
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
@@ -78,7 +82,7 @@ async function checkVercelDeploy() {
         });
 }
 
-function updateElement(data) {
+async function updateElement(data) {
     /*
     正常更新状态使用
     data: api / events 返回数据
