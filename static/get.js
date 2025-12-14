@@ -87,31 +87,42 @@ function updateElement(data) {
     const devicesListEl = document.getElementById('devices-list');
     const deviceDetailEl = document.getElementById('device-detail');
 
+    const resolveDeviceState = (device) => {
+        const app = device.app_name || '';
+        if (device.using) return { label: '运行中', cls: 'status-running' };
+        if (/待机|standby/i.test(app)) return { label: '待机', cls: 'status-standby' };
+        return { label: '已停止', cls: 'status-stopped' };
+    };
+
+    const findBatteryPercent = (device) => {
+        if (typeof device.battery_percent === 'number') return device.battery_percent;
+        if (typeof device.battery_percent === 'string') {
+            const ms = device.battery_percent.match(/(\d{1,3})/);
+            if (ms) return parseInt(ms[1], 10);
+        }
+        try {
+            const m = (device.app_name || '').match(/电量[:：]?\s*(\d{1,3})%/);
+            const m2 = (device.app_name || '').match(/🔋\s*(\d{1,3})%/);
+            if (m) return parseInt(m[1], 10);
+            if (m2) return parseInt(m2[1], 10);
+        } catch(e) { /* ignore */ }
+        return null;
+    };
+
     if (devicesListEl) {
         devicesListEl.innerHTML = '';
         for (let [id, device] of devicesEntries) {
+            const statusMeta = resolveDeviceState(device);
+            const batteryPercent = findBatteryPercent(device);
+            const appLine = device.app_name ? escapeHtml(device.app_name) : '暂无运行应用';
+            const batteryText = batteryPercent !== null && batteryPercent !== undefined ? `${batteryPercent}%` : '—%';
             const box = document.createElement('div');
-            box.className = 'device-box';
+            box.className = `device-box ${statusMeta.cls}`;
             box.dataset.id = id;
-
-            const title = document.createElement('div');
-            title.className = 'device-title';
-            title.innerText = device.show_name || id;
-            const meta = document.createElement('div');
-            meta.className = 'meta';
-            // 解析电量
-            let batteryText = '';
-            try {
-                const m = (device.app_name || '').match(/电量[:：]?\s*(\d{1,3})%/);
-                const m2 = (device.app_name || '').match(/🔋\s*(\d{1,3})%/);
-                batteryText = m ? (m[1] + '%') : (m2 ? (m2[1] + '%') : '');
-            } catch(e) { batteryText = ''; }
-            const statusEl = document.createElement('div');
-            statusEl.className = 'device-meta-row';
-            statusEl.innerHTML = `<div class="status-dot ${device.using ? 'alive' : 'idle'}"></div> <div class="meta-text">${escapeHtml(device.using ? (device.app_name || '使用中') : '未使用')}</div> <div class="battery-inline">${batteryText ? (' ' + escapeHtml(batteryText)) : ''}</div>`;
-
-            box.appendChild(title);
-            box.appendChild(statusEl);
+            box.innerHTML = `<div class="device-box-head"><div><div class="device-title">${escapeHtml(device.show_name || id)}</div><div class="device-sub">ID: ${escapeHtml(id)}</div></div><span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span></div>` +
+                `<div class="device-meta-row"><div class="device-app-line">${appLine}</div><div class="battery-inline"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg><span>${batteryText}</span></div>` +
+                `<button class="expand-toggle" aria-expanded="false" aria-label="展开设备详情"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9l6 6 6-6" stroke="#E6EEF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>` +
+                `<div id="expand-${id}" class="card-expand-body" aria-hidden="true"></div>`;
 
             box.addEventListener('click', function () {
                 selectDevice(id, device);
@@ -878,6 +889,27 @@ document.addEventListener('DOMContentLoaded', function () {
     // 初始化变量
     lastEventTime = Date.now();
     connectionAttempts = 0;
+
+    // 仅刷新设备状态的按钮
+    const refreshBtn = document.getElementById('refresh-devices');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async () => {
+            refreshBtn.disabled = true;
+            refreshBtn.classList.add('spinning');
+            try {
+                const resp = await fetch('/query', { timeout: 10000 });
+                const jd = await resp.json();
+                if (jd.success) {
+                    updateElement(jd);
+                }
+            } catch (e) {
+                console.warn('刷新设备状态失败', e);
+            } finally {
+                refreshBtn.disabled = false;
+                refreshBtn.classList.remove('spinning');
+            }
+        });
+    }
 
     // 检查浏览器是否支持SSE
     if (typeof (EventSource) !== "undefined") {
