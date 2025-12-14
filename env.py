@@ -73,6 +73,8 @@ class _status:
     show_loading: bool = getenv('sleepy_status_show_loading', True, bool)
     refresh_interval: int = getenv('sleepy_status_refresh_interval', 5000, int)
     not_using: str = getenv('sleepy_status_not_using', '', str)
+    # 监控设备 ID (用于显示 24 小时应用使用记录)
+    track_device_id: str = getenv('sleepy_status_track_device_id', '', str)
 
 
 class _util:

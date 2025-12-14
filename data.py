@@ -6,7 +6,7 @@ import json
 import json5
 import threading
 from time import sleep
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import utils as u
 import env as env
@@ -203,6 +203,178 @@ class data:
         month[path] = month.get(path, 0) + 1
         year[path] = year.get(path, 0) + 1
         total[path] = total.get(path, 0) + 1
+
+    # --- App usage history
+
+    def record_app_usage(self, device_id: str, app_name: str, using: bool, app_pkg: str = None, app_name_only: str = None) -> None:
+        '''
+        记录设备上报的 app 使用事件（时间点事件）
+        :param device_id: 设备 id
+        :param app_name: 上报的应用名（原始）
+        :param using: 是否正在使用
+        :param app_pkg: (可选) 应用包名或标识
+        :param app_name_only: (可选) 清洗后的应用名（优先使用）
+        '''
+        try:
+            now = datetime.now(pytz.timezone(env.main.timezone)).isoformat()
+        except Exception:
+            now = datetime.utcnow().isoformat()
+
+        # 规范化应用名：优先使用传入的 app_name_only，再尝试从原始 app_name 中提取
+        def normalize(name):
+            if not name:
+                return ''
+            # 常见 magisk 上报格式包含 "应用:" 或 "应用："
+            import re
+            m = re.search(r'[\n\r]*应用[:：]\s*(.+)$', name)
+            if m:
+                return m.group(1).strip()
+            # 若包含换行，尝试取最后一行
+            if '\n' in name:
+                last = name.split('\n')[-1].strip()
+                return last
+            return name.strip()
+
+        clean_name = (app_name_only or '').strip() or normalize(app_name)
+
+        ah = self.data.setdefault('app_history', {})
+        lst = ah.setdefault(device_id, [])
+        lst.append({'time': now, 'app_name': app_name or '', 'app_name_only': clean_name, 'app_pkg': app_pkg or '', 'using': bool(using)})
+
+        # 清理旧数据，仅保留最近 48 小时的记录以防增长过大
+        try:
+            cutoff = datetime.now(pytz.timezone(env.main.timezone))
+        except Exception:
+            from datetime import timezone
+            cutoff = datetime.now(timezone.utc)
+        cutoff = cutoff.timestamp() - 48 * 3600
+        newlst = []
+        for e in lst:
+            try:
+                t = datetime.fromisoformat(e['time']).timestamp()
+                if t >= cutoff:
+                    newlst.append(e)
+            except Exception:
+                # 如果解析失败，保守保留
+                newlst.append(e)
+        ah[device_id] = newlst
+
+    def get_app_usage(self, device_id: str, hours: int = 24) -> list:
+        '''
+        聚合返回过去 `hours` 小时内每小时的 app 事件计数和排名。
+        返回格式: [{ 'hour': 'YYYY-MM-DD HH:00', 'counts': {app: n, ...}, 'top_app': app, 'top_count': n }, ...]
+        '''
+        try:
+            now = datetime.now(pytz.timezone(env.main.timezone))
+        except Exception:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+
+        start_ts = (now.timestamp() - hours * 3600)
+        raw = self.data.get('app_history', {}).get(device_id, [])
+        buckets = {}
+        for e in raw:
+            try:
+                t = datetime.fromisoformat(e['time'])
+            except Exception:
+                continue
+            ts = t.timestamp()
+            if ts < start_ts:
+                continue
+            # bucket by hour start
+            hour_dt = t.replace(minute=0, second=0, microsecond=0)
+            key = hour_dt.strftime('%Y-%m-%d %H:00')
+            counts = buckets.setdefault(key, {})
+            app = e.get('app_name_only') or e.get('app_name') or '[unknown]'
+            counts[app] = counts.get(app, 0) + 1
+
+        # Build result array from start->now (hours entries)
+        res = []
+        for i in range(hours, 0, -1):
+            hour_dt = (now - timedelta(hours=i-1)).replace(minute=0, second=0, microsecond=0)
+            key = hour_dt.strftime('%Y-%m-%d %H:00')
+            counts = buckets.get(key, {})
+            if counts:
+                # find top
+                top_app = max(counts.items(), key=lambda x: x[1])[0]
+                top_count = counts[top_app]
+            else:
+                top_app = None
+                top_count = 0
+            res.append({'hour': key, 'counts': counts, 'top_app': top_app, 'top_count': top_count})
+        return res
+
+    def get_app_usage_details(self, device_id: str, hours: int = 24) -> dict:
+        '''
+        返回更详细的使用统计：按小时桶的聚合（同 get_app_usage），以及总用时统计、最常用应用、当前运行应用和当前运行时长。
+        '''
+        try:
+            now = datetime.now(pytz.timezone(env.main.timezone))
+        except Exception:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+        start_ts = now.timestamp() - hours * 3600
+
+        raw = self.data.get('app_history', {}).get(device_id, [])
+        # sort by time ascending
+        events = []
+        for e in raw:
+            try:
+                t = datetime.fromisoformat(e['time']).timestamp()
+            except Exception:
+                continue
+            events.append({'ts': t, 'app': e.get('app_name_only') or e.get('app_name') or '[unknown]', 'using': bool(e.get('using', False))})
+        events.sort(key=lambda x: x['ts'])
+
+        totals = {}
+        # iterate, create sessions from event[i] -> event[i+1]
+        for i, ev in enumerate(events):
+            start = ev['ts']
+            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            if end <= start:
+                continue
+            # clip to window
+            if end < start_ts:
+                continue
+            seg_start = max(start, start_ts)
+            seg_end = end
+            duration = seg_end - seg_start
+            if ev['using']:
+                totals[ev['app']] = totals.get(ev['app'], 0) + duration
+
+        # convert totals to readable seconds and find top
+        if totals:
+            top_app = max(totals.items(), key=lambda x: x[1])[0]
+            top_seconds = int(totals[top_app])
+        else:
+            top_app = None
+            top_seconds = 0
+
+        # current app and running time
+        current_app = None
+        current_runtime = 0
+        # check if device currently marked using and has events
+        device_status = self.data.get('device_status', {}).get(device_id, {})
+        if device_status and device_status.get('using'):
+            current_app = device_status.get('app_name') or device_status.get('show_name')
+            # find last 'using' event for same app
+            last_using_ts = None
+            for ev in reversed(events):
+                if ev['using'] and ev['app'] in (device_status.get('app_name') or device_status.get('show_name') or ev['app']):
+                    last_using_ts = ev['ts']
+                    break
+            if last_using_ts:
+                current_runtime = int(now.timestamp() - last_using_ts)
+
+        return {
+            'hours': hours,
+            'totals_seconds': {k: int(v) for k, v in totals.items()},
+            'top_app': top_app,
+            'top_seconds': top_seconds,
+            'current_app': current_app,
+            'current_runtime': current_runtime,
+            'hourly': self.get_app_usage(device_id, hours)
+        }
 
     # --- Timer check - save data
 

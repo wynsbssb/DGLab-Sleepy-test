@@ -294,7 +294,8 @@ def query(ret_as_dict: bool = False):
         'device': devicelst,
         'device_status_slice': env.status.device_slice,
         'last_updated': d.data['last_updated'],
-        'refresh': env.status.refresh_interval
+        'refresh': env.status.refresh_interval,
+        'track_device_id': env.status.track_device_id
     }
     if ret_as_dict:
         return ret
@@ -380,6 +381,24 @@ def device_set():
         'using': device_using,
         'app_name': app_name
     }
+
+    # 记录应用上报事件（仅保存事件点），支持可选字段 app_pkg / app_name_only
+    try:
+        # 尝试从 GET/POST body 中读取额外字段
+        app_pkg = None
+        app_name_only = None
+        if flask.request.method == 'POST':
+            body = flask.request.get_json(silent=True) or {}
+            app_pkg = body.get('app_pkg') or body.get('app_package')
+            app_name_only = body.get('app_name_only') or body.get('app_name_simple')
+        else:
+            app_pkg = flask.request.args.get('app_pkg') or flask.request.args.get('app_package')
+            app_name_only = flask.request.args.get('app_name_only') or flask.request.args.get('app_name_simple')
+
+        d.record_app_usage(device_id, app_name, device_using, app_pkg=app_pkg, app_name_only=app_name_only)
+    except Exception as e:
+        u.warning(f'Failed to record app usage: {e}')
+
     d.data['last_updated'] = datetime.now(pytz.timezone(env.main.timezone)).strftime('%Y-%m-%d %H:%M:%S')
     d.check_device_status()
     return u.format_dict({
@@ -505,6 +524,39 @@ def events():
     response.headers["X-Accel-Buffering"] = "no"  # 禁用 Nginx 缓冲
     return response
 
+
+# --- Device history
+
+@app.route('/device/history')
+def device_history():
+    '''
+    获取指定设备过去若干小时的 app 使用聚合数据
+    - GET params: id=<device_id>&hours=<n>
+    - Returns per-hour counts and top app
+    '''
+    device_id = escape(flask.request.args.get('id', ''))
+    try:
+        hours = int(flask.request.args.get('hours', '24'))
+    except:
+        hours = 24
+    if not device_id:
+        return u.reterr(
+            code='bad request',
+            message='missing param id'
+        ), 400
+    try:
+        history = d.get_app_usage(device_id, hours)
+    except Exception as e:
+        return u.reterr(
+            code='exception',
+            message=str(e)
+        ), 500
+    return u.format_dict({
+        'success': True,
+        'device_id': device_id,
+        'hours': hours,
+        'history': history
+    }), 200
 
 # --- Special
 

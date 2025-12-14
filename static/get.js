@@ -83,39 +83,132 @@ function updateElement(data) {
 
     // 更新设备状态
     var deviceStatus = '<hr/><b><p id="device-status"><i>Device</i> Status</p></b>';
-    const devices = Object.values(data.device);
+    const devicesEntries = Object.entries(data.device); // [id, obj]
+    const devicesListEl = document.getElementById('devices-list');
+    const deviceDetailEl = document.getElementById('device-detail');
 
-    for (let device of devices) {
-        let device_app;
-        const escapedAppName = escapeHtml(device.app_name);
-        if (device.using) {
-            const jsShowName = escapeJs(device.show_name);
-            const jsAppName = escapeJs(device.app_name);
-            const jsCode = `alert('${jsShowName}: \\n${jsAppName}')`;
-            const escapedJsCode = escapeHtml(jsCode);
+    if (devicesListEl) {
+        devicesListEl.innerHTML = '';
+        for (let [id, device] of devicesEntries) {
+            const box = document.createElement('div');
+            box.className = 'device-box';
+            box.dataset.id = id;
 
-            device_app = `
-<a class="awake" 
-    title="${escapedAppName}" 
-    href="javascript:${escapedJsCode}">
-${sliceText(escapedAppName, data.device_status_slice)}
-</a>`;
-        } else {
-            device_app = `
-<a class="sleeping">
-${sliceText(escapedAppName, data.device_status_slice)}
-</a>`
+            const title = document.createElement('div');
+            title.innerText = device.show_name || id;
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            meta.innerText = device.using ? (device.app_name || '使用中') : '未使用';
+
+            box.appendChild(title);
+            box.appendChild(meta);
+
+            box.addEventListener('click', function () {
+                selectDevice(id, device);
+            });
+
+            // 如果当前为已选设备，标记为 active
+            if (window.selectedDeviceId && window.selectedDeviceId === id) {
+                box.classList.add('active');
+            }
+
+            devicesListEl.appendChild(box);
         }
-        deviceStatus += `${escapeHtml(device.show_name)}: ${device_app} <br/>`;
     }
 
-    if (deviceStatus == '<hr/><b><p id="device-status"><i>Device</i> Status</p></b>') {
-        deviceStatus = '';
+    // 如果页面首次加载且 server 指定了 track_device_id，默认选中它
+    if (!window.selectedDeviceId && data.track_device_id) {
+        if (data.device[data.track_device_id]) {
+            window.selectedDeviceId = data.track_device_id;
+            selectDevice(data.track_device_id, data.device[data.track_device_id]);
+        }
     }
 
-    const deviceStatusElement = document.getElementById('device-status');
-    if (deviceStatusElement) {
-        deviceStatusElement.innerHTML = deviceStatus;
+    // 如果当前有选中设备，刷新它的详情（以便显示最新的 app_name）
+    if (window.selectedDeviceId && data.device[window.selectedDeviceId]) {
+        renderDeviceDetail(window.selectedDeviceId, data.device[window.selectedDeviceId]);
+    }
+
+    // 如果没有选中项，则显示简单文本
+    if (!window.selectedDeviceId && deviceDetailEl) {
+        deviceDetailEl.innerHTML = '<div style="opacity:0.8;">请选择设备查看详细信息</div>';
+    }
+
+    // 选择设备并展示详情
+    window.selectDevice = function (id, device) {
+        window.selectedDeviceId = id;
+        document.querySelectorAll('.device-box').forEach(b => b.classList.remove('active'));
+        const box = document.querySelector(`.device-box[data-id="${id}"]`);
+        if (box) box.classList.add('active');
+        renderDeviceDetail(id, device);
+    }
+
+    async function renderDeviceDetail(id, device) {
+        if (!deviceDetailEl) return;
+        const show = device.show_name || id;
+        const using = device.using ? '使用中' : '未使用';
+        const app = device.app_name || '';
+        deviceDetailEl.innerHTML = `<div><h4>${escapeHtml(show)}</h4><div class="meta">${escapeHtml(using)} ${escapeHtml(app ? ' - ' + app : '')}</div><div id="summary-wrap"><div style="opacity:0.8;margin-top:6px;">加载统计...</div></div><div id="history-wrap"><div style="opacity:0.7;margin-top:8px;">加载历史...</div></div></div>`;
+        try {
+            const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
+            const jd = await resp.json();
+            if (jd.success && jd.history) {
+                // show summary
+                const sumwrap = document.getElementById('summary-wrap');
+                if (sumwrap) {
+                    const details = jd.history;
+                    let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">';
+                    html += `<div style="opacity:0.9;">最常用: <b>${escapeHtml(details.top_app || '—')}</b> (${details.top_seconds}s)</div>`;
+                    html += `<div style="opacity:0.9;">当前应用: <b>${escapeHtml(details.current_app || '—')}</b> 运行 <b>${details.current_runtime}s</b></div>`;
+                    html += '</div>';
+                    sumwrap.innerHTML = html;
+                }
+                renderHistory(jd.history.hourly, document.getElementById('history-wrap'));
+
+                // also show totals list
+                if (jd.history.totals_seconds) {
+                    const totals = jd.history.totals_seconds;
+                    const tl = document.createElement('div');
+                    tl.style.marginTop = '8px';
+                    tl.style.fontSize = '0.9em';
+                    let items = Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,6);
+                    if (items.length) {
+                        tl.innerHTML = '<div style="opacity:0.8;">常用应用排行（最近24小时）:</div>' + items.map(it=>`<div style="margin-top:4px;">${escapeHtml(it[0])} — ${it[1]}s</div>`).join('');
+                        document.getElementById('history-wrap').appendChild(tl);
+                    }
+                }
+            } else {
+                document.getElementById('history-wrap').innerHTML = '<div style="opacity:0.7;margin-top:8px;">无历史数据</div>';
+            }
+        } catch (e) {
+            document.getElementById('history-wrap').innerHTML = '<div style="opacity:0.7;margin-top:8px;">获取历史失败</div>';
+        }
+    }
+
+    function renderHistory(history, container) {
+        if (!container) return;
+        if (!history || history.length === 0) {
+            container.innerHTML = '<div style="opacity:0.7;margin-top:8px;">无历史数据</div>';
+            return;
+        }
+        const grid = document.createElement('div');
+        grid.className = 'history-grid';
+        history.forEach(h => {
+            const div = document.createElement('div');
+            div.className = 'hour';
+            if (h.top_app) {
+                div.classList.add('filled');
+                div.title = `${h.hour} - ${h.top_app} (${h.top_count})`;
+                div.innerText = h.top_app;
+            } else {
+                div.classList.add('empty');
+                div.title = `${h.hour} - 无数据`;
+                div.innerText = '';
+            }
+            grid.appendChild(div);
+        });
+        container.innerHTML = '<div style="font-size:0.9em;margin-top:8px;">过去24小时（每格为一小时，鼠标悬停查看）</div>';
+        container.appendChild(grid);
     }
 
     // 更新最后更新时间

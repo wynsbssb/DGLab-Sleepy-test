@@ -33,7 +33,10 @@
 
             <h3><i><b>{{ env.page.user }}'s</b></i> Status:<br><a id="status">{{ status['name'] }}</a></h3>
             <p id="additional-info">{{ status['desc'] | safe }}</p>
-            <p id="device-status">[设备状态列表]</p>
+            <div class="devices-container">
+                <div class="devices-list" id="devices-list"></div>
+                <div class="device-detail" id="device-detail">请选择设备查看详细信息</div>
+            </div>
             
             <div style="height: 10px;"></div>
             <button onclick="handleButton1Click()" class="dg-btn"><img src="https://dungeon-lab.cn/img/logo-new.png"

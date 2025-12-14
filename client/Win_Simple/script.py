@@ -192,7 +192,8 @@ class DeviceMonitor:
                     'id': self.config.device_id,
                     'show_name': self.config.device_show_name,
                     'using': using,
-                    'app_name': window
+                    'app_name': window,
+                    'app_name_only': window
                 },
                 headers={'Content-Type': 'application/json'},
                 timeout=5

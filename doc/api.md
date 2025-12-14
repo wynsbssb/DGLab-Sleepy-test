@@ -305,7 +305,9 @@ Authorization: Bearer MySecretCannotGuess
     "id": "device-1", // 设备标识符
     "show_name": "MyDevice1", // 显示名称
     "using": true, // 是否正在使用
-    "app_name": "VSCode" // 正在使用应用的名称
+    "app_name": "VSCode", // 正在使用应用的名称
+    "app_name_only": "VSCode", // (可选) 清洗后的简洁应用名，优先用于统计
+    "app_pkg": "com.microsoft.vscode" // (可选) 应用包名或标识
 }
 ```
 
@@ -408,6 +410,45 @@ Authorization: Bearer MySecretCannotGuess
     "success": false,
     "code": "invaild request",
     "message": "\"private\" arg only supports boolean type"
+}
+```
+
+### device-history
+
+[Back to ## device](#device)
+
+> `/device/history?id=<id>&hours=<n>`
+
+获取指定设备过去若干小时（默认 24h）的使用历史与统计。
+
+* Method: GET
+* 无需鉴权
+
+#### Params
+
+- `<id>`: 设备标识符
+- `<hours>`: 可选，表示往回多少小时（默认为 24）
+
+#### Response
+
+```jsonc
+// 200 OK
+{
+  "success": true,
+  "device_id": "device-1",
+  "hours": 24,
+  "history": {
+    "hours": 24,
+    "hourly": [
+      { "hour": "2025-01-22 00:00", "counts": {"AppA": 2}, "top_app": "AppA", "top_count": 2 },
+      ...
+    ],
+    "totals_seconds": { "AppA": 3600, "AppB": 1200 },
+    "top_app": "AppA",
+    "top_seconds": 3600,
+    "current_app": "AppB", // 如果设备当前处于使用中，则返回名字
+    "current_runtime": 120 // 当前应用已运行的秒数
+  }
 }
 ```
 

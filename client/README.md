@@ -175,6 +175,8 @@ pip install psutil
 
 下载后双击 `Win_Simple.exe` 初始化配置文件，然后在同级目录下的 `config.ini` 中填写配置，重新打开即可
 
+Note: `Win_Simple` now sends an additional `app_name_only` field in `/device/set` payload to help the server compute app-usage statistics more reliably (the server also accepts `app_pkg` when available from Android clients).
+
 > [!TIP]
 > 如何开机自启? <br/>
 > 创建一个 `Win_Simple.exe` 的快捷方式，然后扔到 `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup` 下即可
@@ -277,6 +279,11 @@ Caused by: java.lang.SecurityException: Unable to start service Intent { cmp=org
 2. 找 wyf9 获取旧版安装包
 
 ## [MagiskService](./magisk/service.sh)
+
+Notes:
+- `service.sh` now sends `app_name_only` (cleaned app name) and `app_pkg` (package name) fields in the JSON payload to help the server compute usage statistics and top apps.
+- You can control package lists in `GAME_PACKAGES` and tune `get_interval_seconds()` for different sleep intervals.
+
 
 > by: [@kmizmal](https://github.com/kmizmal)
 
