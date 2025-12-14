@@ -573,6 +573,43 @@ def events():
     return response
 
 
+# --- Recent usage API
+
+@app.route('/recent')
+def recent_records():
+    '''
+    返回最近的应用使用记录（按设备拆分）
+    - GET params: id=<device_id>&limit=<n>&hours=<m>
+    '''
+    device_id = escape(flask.request.args.get('id', ''))
+    try:
+        limit = int(flask.request.args.get('limit', '10'))
+    except Exception:
+        limit = 10
+    try:
+        hours = int(flask.request.args.get('hours', '24'))
+    except Exception:
+        hours = 24
+    if not device_id:
+        return u.reterr(
+            code='invalid_request',
+            message='device id is required'
+        ), 400
+    try:
+        records = d.get_recent_records(device_id=device_id, hours=hours, limit=limit)
+    except Exception as e:
+        return u.reterr(
+            code='exception',
+            message=str(e)
+        ), 500
+    return u.format_dict({
+        'success': True,
+        'hours': hours,
+        'limit': limit,
+        'records': records
+    }), 200
+
+
 # --- Device history
 
 @app.route('/device/history')
