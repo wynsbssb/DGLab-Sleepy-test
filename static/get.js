@@ -127,15 +127,19 @@ async function updateElement(data) {
         return null;
     };
 
+    const resolveCurrentApp = (device, details) => {
+        const lastRecent = details && details.recent && details.recent.length ? details.recent[0] : null;
+        const lastAppRaw = (lastRecent && lastRecent.app_name) || (device && device.app_name) || '';
+        return /待机|standby/i.test(lastAppRaw || '') ? '设备待机' : (lastAppRaw || '暂无记录');
+    };
+
     function updateStatusStrip(details, device) {
         const lastAppEl = document.getElementById('last-app');
         const stateEl = document.getElementById('device-state');
         const runtimeEl = document.getElementById('runtime-minutes');
         const batteryEl = document.getElementById('battery-level');
         const statusMeta = device ? resolveDeviceState(device) : { label: '—' };
-        const lastRecent = details && details.recent && details.recent.length ? details.recent[0] : null;
-        const lastAppRaw = (lastRecent && lastRecent.app_name) || (device && device.app_name) || '';
-        const displayApp = /待机|standby/i.test(lastAppRaw || '') ? '设备待机' : (lastAppRaw || '暂无记录');
+        const displayApp = resolveCurrentApp(device, details);
         const totalSeconds = details && details.totals_seconds ? Object.values(details.totals_seconds).reduce((s,x)=>s+(x||0),0) : 0;
         const runtimeSeconds = (device && device.using && details && details.current_runtime) ? details.current_runtime : totalSeconds;
         const batteryPct = device ? findBatteryPercent(device) : null;
@@ -182,28 +186,47 @@ async function updateElement(data) {
             const statusMeta = resolveDeviceState(device);
             const batteryPercent = findBatteryPercent(device);
             const batteryText = batteryPercent !== null && batteryPercent !== undefined ? `${batteryPercent}%` : '—%';
+            const mostUsedApp = device.top_app || '暂无数据';
+            const currentApp = device.app_name ? device.app_name : '暂无运行应用';
             const box = document.createElement('div');
             box.className = `device-box ${statusMeta.cls}`;
             box.dataset.id = id;
             box.setAttribute('role', 'button');
             box.setAttribute('tabindex', '0');
             box.setAttribute('aria-pressed', 'false');
-            box.innerHTML = `<div class="device-box-head"><div class="device-title">${escapeHtml(device.show_name || id)}</div><span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span></div>` +
-                `<div class="device-app-pill" title="${escapeHtml(device.app_name || '暂无运行应用')}"><div class="pill-top"><span class="pill-label">当前应用</span><span class="pill-value">${device.app_name ? escapeHtml(device.app_name) : '暂无运行应用'}</span></div><div class="pill-meta"><span class="battery-chip"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>${batteryText}</span><span class="muted-id">ID: ${escapeHtml(id)}</span></div></div>`;
+            box.innerHTML =
+                `<div class="device-box-head">` +
+                    `<div class="device-title">${escapeHtml(device.show_name || id)}</div>` +
+                    `<span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span>` +
+                `</div>` +
+                `<div class="device-meta">` +
+                    `<span class="battery-inline">` +
+                        `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>` +
+                        `${batteryText}` +
+                    `</span>` +
+                    `<span class="muted-id">ID: ${escapeHtml(id)}</span>` +
+                `</div>` +
+                `<div class="device-app-grid">` +
+                    `<div class="device-app-pill" title="${escapeHtml(mostUsedApp)}">` +
+                        `<div class="pill-top">` +
+                            `<span class="pill-label">最常用应用</span>` +
+                            `<span class="pill-value">${escapeHtml(mostUsedApp)}</span>` +
+                        `</div>` +
+                    `</div>` +
+                    `<div class="device-app-pill" title="${escapeHtml(currentApp)}">` +
+                        `<div class="pill-top">` +
+                            `<span class="pill-label">当前应用</span>` +
+                            `<span class="pill-value">${escapeHtml(currentApp)}</span>` +
+                        `</div>` +
+                    `</div>` +
+                `</div>`;
 
-            box.addEventListener('click', () => handleDeviceSelection(id));
+            const selectionHandler = () => handleDeviceSelection(id);
+            box.addEventListener('click', selectionHandler);
             box.addEventListener('keydown', (ev) => {
                 if (ev.key === 'Enter' || ev.key === ' ') {
                     ev.preventDefault();
-                    handleDeviceSelection(id);
-                }
-            });
-
-            box.addEventListener('click', () => handleDeviceSelection(id));
-            box.addEventListener('keydown', (ev) => {
-                if (ev.key === 'Enter' || ev.key === ' ') {
-                    ev.preventDefault();
-                    handleDeviceSelection(id);
+                    selectionHandler();
                 }
             });
 
@@ -476,6 +499,7 @@ async function updateElement(data) {
         setText('stat-app-count', appCount);
         setText('stat-total-time', totalTimeText);
         setText('stat-top-app', topApp);
+        setText('stat-current-app', resolveCurrentApp(device || window.currentDevice, details));
         updateStatusStrip(details, device || window.currentDevice || null);
 
         // donut data from totals_seconds
