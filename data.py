@@ -609,6 +609,24 @@ class data:
             }
         return res
 
+    def get_recent_records(self, hours: int = 24, limit: int = 10) -> list:
+        """
+        返回最近的应用使用记录，聚合所有设备，并限制返回数量。
+
+        :param hours: 统计窗口，默认最近 24 小时
+        :param limit: 最多返回的记录条数，默认 10
+        """
+        # 复用聚合统计，避免重复实现 session 拆分逻辑
+        history = self.get_app_usage_aggregate(hours)
+        recent = history.get('recent', []) if isinstance(history, dict) else []
+        if not isinstance(recent, list):
+            return []
+        try:
+            lim = max(1, int(limit))
+        except Exception:
+            lim = 10
+        return recent[:lim]
+
     def get_app_usage_aggregate(self, hours: int = 24) -> dict:
         """
         聚合所有设备的使用统计，返回与 `get_app_usage_details` 相同的结构，但基于所有设备的事件合并计算。
@@ -637,6 +655,8 @@ class data:
         events.sort(key=lambda x: x['ts'])
 
         totals = {}
+        launches = {}
+        last_seen = {}
         for i, ev in enumerate(events):
             start = ev['ts']
             end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
@@ -649,6 +669,17 @@ class data:
             duration = seg_end - seg_start
             if ev['using']:
                 totals[ev['app']] = totals.get(ev['app'], 0) + duration
+                # 启动次数：当前事件为 using 且前一事件未使用或 app 不同
+                prev = events[i-1] if i-1 >= 0 else None
+                is_new_launch = False
+                if prev is None:
+                    is_new_launch = True
+                else:
+                    if (not prev['using']) or (prev['app'] != ev['app']):
+                        is_new_launch = True
+                if is_new_launch:
+                    launches[ev['app']] = launches.get(ev['app'], 0) + 1
+                last_seen[ev['app']] = max(last_seen.get(ev['app'], 0), int(ev['ts']))
 
         if totals:
             top_app = max(totals.items(), key=lambda x: x[1])[0]
@@ -663,6 +694,7 @@ class data:
 
         # hourly buckets: merge per-hour counts across devices
         buckets = {}
+        hourly_seconds = {}
         for e in all_raw:
             try:
                 t = datetime.fromisoformat(e['time'])
@@ -676,6 +708,34 @@ class data:
             counts = buckets.setdefault(key, {})
             app = e.get('app_name_only') or e.get('app_name') or '[unknown]'
             counts[app] = counts.get(app, 0) + 1
+
+        # 计算每小时使用秒数（基于事件构造的 session）
+        for i, ev in enumerate(events):
+            start = ev['ts']
+            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            if end <= start or end < start_ts:
+                continue
+            if not ev['using']:
+                continue
+            seg_start = max(start, start_ts)
+            seg_end = end
+            cur = seg_start
+            while cur < seg_end:
+                try:
+                    tz = pytz.timezone(env.main.timezone) if pytz else None
+                except Exception:
+                    tz = None
+                if tz:
+                    hour_dt = datetime.fromtimestamp(cur, tz).replace(minute=0, second=0, microsecond=0)
+                else:
+                    hour_dt = datetime.fromtimestamp(cur).replace(minute=0, second=0, microsecond=0)
+                hour_start = hour_dt.timestamp()
+                hour_end = hour_start + 3600
+                part_end = min(seg_end, hour_end)
+                add = part_end - cur
+                key = hour_dt.strftime('%Y-%m-%d %H:00')
+                hourly_seconds[key] = hourly_seconds.get(key, 0) + add
+                cur = part_end
 
         # build hourly array
         res = []
@@ -732,7 +792,8 @@ class data:
             'current_app': current_app,
             'current_runtime': current_runtime,
             'hourly': res,
-            'per_app': {k: {'seconds': int(v), 'launches': 0} for k, v in totals.items()},
+            'per_app': {k: {'seconds': int(v), 'launches': launches.get(k, 0), 'last_used': last_seen.get(k, 0)} for k, v in totals.items()},
+            'hourly_seconds': {k: int(v) for k, v in hourly_seconds.items()},
             'recent': recent[:500]
         }
 
