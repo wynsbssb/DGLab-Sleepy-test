@@ -131,16 +131,49 @@ async function updateElement(data) {
         const lastAppEl = document.getElementById('last-app');
         const stateEl = document.getElementById('device-state');
         const runtimeEl = document.getElementById('runtime-minutes');
+        const batteryEl = document.getElementById('battery-level');
         const statusMeta = device ? resolveDeviceState(device) : { label: '—' };
         const lastRecent = details && details.recent && details.recent.length ? details.recent[0] : null;
         const lastAppRaw = (lastRecent && lastRecent.app_name) || (device && device.app_name) || '';
         const displayApp = /待机|standby/i.test(lastAppRaw || '') ? '设备待机' : (lastAppRaw || '暂无记录');
         const totalSeconds = details && details.totals_seconds ? Object.values(details.totals_seconds).reduce((s,x)=>s+(x||0),0) : 0;
         const runtimeSeconds = (device && device.using && details && details.current_runtime) ? details.current_runtime : totalSeconds;
+        const batteryPct = device ? findBatteryPercent(device) : null;
 
         if (lastAppEl) lastAppEl.textContent = displayApp;
         if (stateEl) stateEl.textContent = statusMeta.label;
         if (runtimeEl) runtimeEl.textContent = runtimeSeconds ? `${Math.max(1, Math.round(runtimeSeconds/60))} 分钟` : '—';
+        if (batteryEl) batteryEl.textContent = batteryPct !== null && batteryPct !== undefined ? `${batteryPct}%` : '—';
+    }
+
+    const markActiveCard = () => {
+        if (!devicesListEl) return;
+        devicesListEl.querySelectorAll('.device-box').forEach(el => {
+            el.classList.toggle('active', el.dataset.id === window.selectedDeviceId);
+            el.setAttribute('aria-pressed', el.dataset.id === window.selectedDeviceId ? 'true' : 'false');
+        });
+    };
+
+    async function handleDeviceSelection(id) {
+        if (!id || !devicesMap[id]) return;
+        window.selectedDeviceId = id;
+        window.currentDevice = devicesMap[id];
+        markActiveCard();
+        updateStatusStrip(null, devicesMap[id]);
+        try {
+            const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
+            const jd = await resp.json();
+            if (jd.success && jd.history) {
+                renderDashboardAggregate(jd.history, devicesMap[id], id);
+            } else {
+                showDashboardError('暂无可用数据');
+                updateStatusStrip(null, devicesMap[id]);
+            }
+        } catch (e) {
+            console.warn('history fetch failed', e);
+            showDashboardError('加载失败，请稍后重试');
+            updateStatusStrip(null, devicesMap[id]);
+        }
     }
 
     const markActiveCard = () => {
@@ -186,8 +219,15 @@ async function updateElement(data) {
             box.setAttribute('tabindex', '0');
             box.setAttribute('aria-pressed', 'false');
             box.innerHTML = `<div class="device-box-head"><div class="device-title">${escapeHtml(device.show_name || id)}</div><span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span></div>` +
-                `<div class="device-app-pill" title="${escapeHtml(device.app_name || '暂无运行应用')}"><span class="pill-label">当前应用</span><span class="pill-value">${device.app_name ? escapeHtml(device.app_name) : '暂无运行应用'}</span></div>` +
-                `<div class="device-meta-row"><div class="battery-inline"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg><span>${batteryText}</span></div></div>`;
+                `<div class="device-app-pill" title="${escapeHtml(device.app_name || '暂无运行应用')}"><div class="pill-top"><span class="pill-label">当前应用</span><span class="pill-value">${device.app_name ? escapeHtml(device.app_name) : '暂无运行应用'}</span></div><div class="pill-meta"><span class="battery-chip"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>${batteryText}</span><span class="muted-id">ID: ${escapeHtml(id)}</span></div></div>`;
+
+            box.addEventListener('click', () => handleDeviceSelection(id));
+            box.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault();
+                    handleDeviceSelection(id);
+                }
+            });
 
             box.addEventListener('click', () => handleDeviceSelection(id));
             box.addEventListener('keydown', (ev) => {
@@ -455,7 +495,7 @@ async function updateElement(data) {
     }
 
     // Render dashboard aggregate panels, donut and hourly chart
-    function renderDashboardAggregate(details, device){
+    function renderDashboardAggregate(details, device, deviceId){
         if(!details) return;
         // top stats
         const appCount = Object.keys(details.totals_seconds||{}).length || 0;
@@ -520,7 +560,8 @@ async function updateElement(data) {
         if(recentRoot){
             recentRoot.innerHTML = '<div class="loading">加载最近记录...</div>';
             (async()=>{
-                const deviceQuery = chosenId ? `id=${encodeURIComponent(chosenId)}&` : '';
+                const activeId = deviceId || window.selectedDeviceId || null;
+                const deviceQuery = activeId ? `id=${encodeURIComponent(activeId)}&` : '';
                 try{
                     const resp = await fetch(`/recent?${deviceQuery}limit=10&hours=48`);
                     const jd = await resp.json();
