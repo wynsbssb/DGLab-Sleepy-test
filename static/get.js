@@ -35,20 +35,6 @@ function escapeJs(str) {
         .replace(/\r/g, '\\r');
 }
 
-function formatDuration(seconds) {
-    const sec = Math.max(0, Math.round(seconds || 0));
-    if (sec >= 3600) {
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        return `${h}小时${m ? m + '分钟' : ''}`;
-    }
-    if (sec >= 60) {
-        const m = Math.round(sec / 60);
-        return `${m}分钟`;
-    }
-    return `${sec}秒`;
-}
-
 function getFormattedDate(date) {
     const pad = (num) => (num < 10 ? '0' + num : num);
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
@@ -123,22 +109,6 @@ function updateElement(data) {
         return null;
     };
 
-    function updateStatusStrip(details, device) {
-        const lastAppEl = document.getElementById('last-app');
-        const stateEl = document.getElementById('device-state');
-        const runtimeEl = document.getElementById('runtime-minutes');
-        const statusMeta = device ? resolveDeviceState(device) : { label: '—' };
-        const lastRecent = details && details.recent && details.recent.length ? details.recent[0] : null;
-        const lastAppRaw = (lastRecent && lastRecent.app_name) || (device && device.app_name) || '';
-        const displayApp = /待机|standby/i.test(lastAppRaw || '') ? '设备待机' : (lastAppRaw || '暂无记录');
-        const totalSeconds = details && details.totals_seconds ? Object.values(details.totals_seconds).reduce((s,x)=>s+(x||0),0) : 0;
-        const runtimeSeconds = (device && device.using && details && details.current_runtime) ? details.current_runtime : totalSeconds;
-
-        if (lastAppEl) lastAppEl.textContent = displayApp;
-        if (stateEl) stateEl.textContent = statusMeta.label;
-        if (runtimeEl) runtimeEl.textContent = runtimeSeconds ? `${Math.max(1, Math.round(runtimeSeconds/60))} 分钟` : '—';
-    }
-
     if (devicesListEl) {
         devicesListEl.innerHTML = '';
         for (let [id, device] of devicesEntries) {
@@ -170,7 +140,6 @@ function updateElement(data) {
     // 选择设备并展示详情（保留单设备查看能力）
     window.selectDevice = function (id, device) {
         window.selectedDeviceId = id;
-        window.currentDevice = device;
         document.querySelectorAll('.device-box').forEach(b => b.classList.remove('active'));
         const box = document.querySelector(`.device-box[data-id="${id}"]`);
         if (box) box.classList.add('active');
@@ -201,7 +170,6 @@ function updateElement(data) {
             const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
             const jd = await resp.json();
             if (jd.success && jd.history) {
-                updateStatusStrip(jd.history, device);
                 // show summary (加入图标和动画数字)
                 const sumwrap = document.getElementById('summary-wrap');
                 if (sumwrap) {
@@ -216,7 +184,7 @@ function updateElement(data) {
                     // animate top seconds
                     animateNumber(document.getElementById('most-used-seconds'), 0, details.top_seconds);
                 }
-                renderDashboardAggregate(jd.history, device);
+                renderDashboardAggregate(jd.history);
                 // pass hourly_seconds map to history container for scaling
                 const hrWrap = document.getElementById('history-wrap');
                 if (hrWrap) hrWrap.dataset.hourlySeconds = JSON.stringify(jd.history.hourly_seconds || {});
@@ -276,12 +244,9 @@ function updateElement(data) {
                         document.getElementById('history-wrap').appendChild(tl);
                     }
                 }
-            } else {
-                updateStatusStrip(null, device);
-                if (deviceDetailEl) {
-                    const wrap = document.getElementById('history-wrap');
-                    if (wrap) wrap.innerHTML = '<div class="muted">无历史数据</div>';
-                }
+            } else if (deviceDetailEl) {
+                const wrap = document.getElementById('history-wrap');
+                if (wrap) wrap.innerHTML = '<div class="muted">无历史数据</div>';
             }
         } catch (e) {
             if (deviceDetailEl) {
@@ -427,78 +392,40 @@ function updateElement(data) {
         requestAnimationFrame(tick);
     }
 
-    // 绘制带图例的环形图
+    // draw simple donut chart
     function drawDonut(container, data){
         container.innerHTML = '';
-        if(!data || !data.length){
-            container.innerHTML = '<div class="muted">暂无数据</div>';
-            return;
-        }
         const total = data.reduce((s,i)=>s+i.seconds,0)||1;
-        const wrap = document.createElement('div');
-        wrap.className = 'donut-layout';
-
-        const graphic = document.createElement('div');
-        graphic.className = 'donut-graphic';
+        const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.alignItems='center';
         const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-        svg.setAttribute('viewBox','0 0 240 240');
-        const radius = 90;
-        const circumference = 2 * Math.PI * radius;
-        let offset = 0;
-
-        // 底环
-        const baseCircle = document.createElementNS('http://www.w3.org/2000/svg','circle');
-        baseCircle.setAttribute('cx','120'); baseCircle.setAttribute('cy','120');
-        baseCircle.setAttribute('r', radius);
-        baseCircle.setAttribute('fill','none');
-        baseCircle.setAttribute('stroke','rgba(255,255,255,0.08)');
-        baseCircle.setAttribute('stroke-width','26');
-        svg.appendChild(baseCircle);
-
-        data.forEach((d)=>{
-            const pct = d.seconds/total;
-            const segLength = pct * circumference;
+        svg.setAttribute('width','120'); svg.setAttribute('height','120');
+        svg.setAttribute('viewBox','0 0 42 42');
+        let start = 0;
+        data.forEach((d,i)=>{
+            const seg = d.seconds/total*100;
             const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
-            circle.setAttribute('cx','120'); circle.setAttribute('cy','120');
-            circle.setAttribute('r', radius);
-            circle.setAttribute('fill','none');
-            circle.setAttribute('stroke', d.color);
-            circle.setAttribute('stroke-width','26');
-            circle.setAttribute('stroke-dasharray', `${segLength} ${circumference}`);
-            circle.setAttribute('stroke-dashoffset', `${-offset}`);
-            circle.setAttribute('stroke-linecap','round');
-            offset += segLength;
-            circle.addEventListener('click', ()=> { selectAppFromDonut(d.name); setCenter(d); });
-            circle.addEventListener('mouseover', ()=> setCenter(d));
+            circle.setAttribute('r','15.91549430918954');
+            circle.setAttribute('cx','21'); circle.setAttribute('cy','21');
+            circle.setAttribute('fill','transparent');
+            circle.setAttribute('stroke',d.color);
+            circle.setAttribute('stroke-width','6');
+            circle.setAttribute('stroke-dasharray',`${seg} ${100-seg}`);
+            circle.setAttribute('transform',`rotate(-90 21 21) translate(0 0)`);
+            circle.style.strokeDashoffset = `${-start}`;
+            start += seg;
             svg.appendChild(circle);
+            circle.addEventListener('click', ()=> { selectAppFromDonut(d.name); updateDonutCenter(d); });
+            circle.addEventListener('mouseover', ()=> updateDonutCenter(d));
         });
-
         const center = document.createElement('div');
         center.className = 'donut-center';
-        function setCenter(d){
-            const pct = Math.round((d.seconds/total)*100);
-            center.innerHTML = `<div class="title">应用使用时间</div><div class="value">${formatDuration(d.seconds)}</div><div class="subtitle">${escapeHtml(d.name)} · ${pct}%</div>`;
+        center.style.width='80px'; center.style.height='80px'; center.style.marginLeft='8px'; center.style.display='flex'; center.style.flexDirection='column'; center.style.alignItems='center'; center.style.justifyContent='center'; center.style.fontSize='0.9em';
+        function updateDonutCenter(d){
+            center.innerHTML = `<div style="font-weight:700">${escapeHtml(d.name)}</div><div class="muted">${Math.round(d.seconds)}s</div>`;
         }
-        if(data.length) setCenter(data[0]);
-
-        graphic.appendChild(svg);
-        graphic.appendChild(center);
-
-        const legend = document.createElement('div');
-        legend.className = 'donut-legend';
-        data.forEach((d)=>{
-            const item = document.createElement('div');
-            item.className = 'legend-item';
-            const pct = Math.round((d.seconds/total)*100);
-            item.innerHTML = `<div class="legend-swatch" style="background:${d.color}"></div>` +
-                `<div class="legend-text"><div class="legend-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</div>` +
-                `<div class="legend-meta">${formatDuration(d.seconds)} · ${pct}%</div></div>`;
-            item.addEventListener('click', ()=> { selectAppFromDonut(d.name); setCenter(d); });
-            legend.appendChild(item);
-        });
-
-        wrap.appendChild(graphic);
-        wrap.appendChild(legend);
+        if(data.length) updateDonutCenter(data[0]);
+        wrap.appendChild(svg);
+        wrap.appendChild(center);
         container.appendChild(wrap);
     }
 
@@ -510,45 +437,8 @@ function updateElement(data) {
         return out;
     }
 
-    function renderRecentTable(root, records){
-        if(!root) return;
-        root.innerHTML = '';
-        if(!records || !records.length){
-            root.innerHTML = '<div class="muted">无最近记录</div>';
-            return;
-        }
-        const wrapper = document.createElement('div');
-        wrapper.className = 'recent-table-wrapper collapsed';
-        const table = document.createElement('table');
-        table.innerHTML = '<tr><th>应用</th><th>开始</th><th>结束</th><th>持续</th></tr>';
-        records.forEach(r=>{
-            const tr = document.createElement('tr');
-            if(!r.end_time || r.status === 'running') tr.classList.add('running');
-            const endTxt = r.end_time? new Date(r.end_time*1000).toLocaleString() : '运行中';
-            const durTxt = r.duration ? Math.round(r.duration)+'s' : (r.end_time? '—':'运行中');
-            tr.innerHTML = `<td class="app-name" title="${escapeHtml(r.app_name||'—')}">${escapeHtml(sliceText(r.app_name||'—', 64))}</td>`+
-                `<td>${new Date(r.start_time*1000).toLocaleString()}</td>`+
-                `<td>${endTxt}</td>`+
-                `<td>${durTxt}</td>`;
-            table.appendChild(tr);
-        });
-        wrapper.appendChild(table);
-        root.appendChild(wrapper);
-        if(records.length > 5){
-            const toggle = document.createElement('button');
-            toggle.className = 'recent-toggle ghost-btn';
-            toggle.textContent = '展开查看更多';
-            toggle.addEventListener('click', ()=>{
-                const expanded = wrapper.classList.toggle('expanded');
-                wrapper.classList.toggle('collapsed', !expanded);
-                toggle.textContent = expanded ? '收起列表' : '展开查看更多';
-            });
-            root.appendChild(toggle);
-        }
-    }
-
     // Render dashboard aggregate panels, donut and hourly chart
-    function renderDashboardAggregate(details, device){
+    function renderDashboardAggregate(details){
         if(!details) return;
         // top stats
         const appCount = Object.keys(details.totals_seconds||{}).length || 0;
@@ -559,7 +449,6 @@ function updateElement(data) {
         setText('stat-app-count', appCount);
         setText('stat-total-time', totalTimeText);
         setText('stat-top-app', topApp);
-        updateStatusStrip(details, device || window.currentDevice || null);
 
         // donut data from totals_seconds
         const totals = details.totals_seconds || {};
@@ -574,7 +463,6 @@ function updateElement(data) {
         const hourlyRoot = document.getElementById('hourly-root');
         if(hourlyRoot){
             hourlyRoot.innerHTML = '';
-            hourlyRoot.dataset.hourlySeconds = JSON.stringify(details.hourly_seconds || {});
             renderHistory(details.hourly || [], hourlyRoot);
         }
 
@@ -583,46 +471,33 @@ function updateElement(data) {
         if(pl){
             pl.innerHTML = '';
             const total = Math.max(1, totalSeconds);
-            const wrap = document.createElement('div');
-            wrap.className = 'progress-wrapper collapsed';
             entries.forEach(([name,sec],i)=>{
                 const pct = Math.round(sec/total*100);
                 const row = document.createElement('div'); row.className='app-row';
                 row.innerHTML = `<div><strong>${escapeHtml(name)}</strong></div><div>${Math.round(sec/60)}分 <span class="muted">(${pct}%)</span></div>`;
                 const prog = document.createElement('div'); prog.className='progress'; const fill = document.createElement('div'); fill.className='progress-fill'; fill.style.width=pct+'%'; fill.style.background=generateColors(entries.length)[i%7]; prog.appendChild(fill);
-                wrap.appendChild(row); wrap.appendChild(prog);
+                pl.appendChild(row); pl.appendChild(prog);
             });
-            pl.appendChild(wrap);
-            if(entries.length > 6){
-                const toggle = document.createElement('button');
-                toggle.className = 'ghost-btn progress-toggle';
-                toggle.textContent = '展开详细数据';
-                toggle.addEventListener('click', ()=>{
-                    const expanded = wrap.classList.toggle('expanded');
-                    wrap.classList.toggle('collapsed', !expanded);
-                    toggle.textContent = expanded ? '收起详细数据' : '展开详细数据';
-                });
-                pl.appendChild(toggle);
-            } else {
-                wrap.classList.remove('collapsed');
-            }
         }
 
         // recent table (if provided)
         const recentRoot = document.getElementById('recent-table');
         if(recentRoot){
-            recentRoot.innerHTML = '<div class="loading">加载最近记录...</div>';
-            (async()=>{
-                try{
-                    const resp = await fetch('/recent?limit=10&hours=48');
-                    const jd = await resp.json();
-                    if(jd.success){
-                        renderRecentTable(recentRoot, jd.records || []);
-                        return;
-                    }
-                }catch(e){ /* fallback */ }
-                renderRecentTable(recentRoot, (details.recent||[]).slice(0,10));
-            })();
+            recentRoot.innerHTML = '';
+            if(details.recent && details.recent.length){
+                const table = document.createElement('table');
+                table.innerHTML = `<tr><th>应用</th><th>开始</th><th>结束</th><th>持续</th></tr>`;
+                details.recent.slice(0,20).forEach(r=>{
+                    const tr = document.createElement('tr');
+                    const end = r.end_time? new Date(r.end_time*1000).toLocaleString() : '运行中';
+                    const dur = r.duration ? Math.round(r.duration)+'s' : (r.end_time? '—':'运行中');
+                    tr.innerHTML = `<td>${escapeHtml(r.app_name)}</td><td>${new Date(r.start_time*1000).toLocaleString()}</td><td>${end}</td><td>${dur}</td>`;
+                    table.appendChild(tr);
+                });
+                recentRoot.appendChild(table);
+            } else {
+                recentRoot.innerHTML = '<div class="muted">无最近记录</div>';
+            }
         }
     }
     // helper: 从 app_name 中解析电量信息
@@ -672,7 +547,7 @@ function updateElement(data) {
                 if (allHistoryWrap) allHistoryWrap.dataset.hourlySeconds = JSON.stringify(jd.history.hourly_seconds || {});
                 renderHistory(jd.history.hourly, allHistoryWrap);
                 // render dashboard aggregate panels and charts
-                try{ renderDashboardAggregate(jd.history, window.currentDevice || null); }catch(e){ console.warn('dashboard aggregate render failed', e); }
+                try{ renderDashboardAggregate(jd.history); }catch(e){ console.warn('dashboard aggregate render failed', e); }
             } else {
                 document.getElementById('all-history').innerHTML = '<div class="muted">无聚合历史</div>';
             }

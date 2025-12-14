@@ -11,8 +11,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
     <style>
         body {
-            background: radial-gradient(circle at 20% 20%, rgba(79, 139, 255, 0.12), transparent 32%),
-                        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(245, 247, 252, 0.95)),
+            background: radial-gradient(circle at 20% 20%, rgba(79, 139, 255, 0.08), transparent 32%),
+                        linear-gradient(180deg, rgba(15, 17, 21, 0.92), rgba(15, 17, 21, 0.96)),
                         url('{{ background_url }}') no-repeat center center fixed;
             background-size: cover;
             background-position: center center;
@@ -28,12 +28,20 @@
         <div class="card dashboard-card" id="user_status">
             <div class="dashboard-header">
                 <div>
-                    <p class="eyebrow"></p>
+                    <p class="eyebrow">设备 + 应用使用统计</p>
                     <h1><ruby>似<rt>sǐ</rt></ruby>了吗?</h1>
                     <h3 class="subdued"><i><b>{{ env.page.user }}'s</b></i> Status:<br><a id="status">{{ status['name'] }}</a></h3>
                     <p id="additional-info">{{ status['desc'] | safe }}</p>
                 </div>
-                <div class="header-actions"></div>
+                <div class="header-actions">
+                    {% if env.page.moonlight %}
+                    <!-- (moonlight) 透明度 / 暗色模式 -->
+                    {% include "moonlight.html" %}
+                    {% endif %}
+                    {% if env.page.slider %}
+                    <div id="slider"></div>
+                    {% endif %}
+                </div>
             </div>
             <!-- Dashboard top stats -->
             <div class="dashboard-top">
@@ -60,20 +68,6 @@
                         <div class="stat-label">最常用应用</div>
                     </div>
                 </div>
-                <div class="status-strip" id="status-strip">
-                    <div class="status-card">
-                        <div class="status-label">上次应用</div>
-                        <div class="status-value" id="last-app">—</div>
-                    </div>
-                    <div class="status-card">
-                        <div class="status-label">状态</div>
-                        <div class="status-value" id="device-state">—</div>
-                    </div>
-                    <div class="status-card">
-                        <div class="status-label">已运行时间</div>
-                        <div class="status-value" id="runtime-minutes">—</div>
-                    </div>
-                </div>
             </div>
 
             <div class="dashboard-main">
@@ -95,11 +89,12 @@
                             <div class="device-box-head">
                                 <div>
                                     <div class="device-title">{{ dev.show_name }}</div>
+                                    <div class="device-sub">ID: {{ id }}</div>
                                 </div>
                                 <span class="status-chip {{ status_class }}">{{ status_label }}</span>
                             </div>
                             <div class="device-meta-row">
-                                <div class="device-app-line">当前应用：{{ dev.app_name if dev.app_name else '暂无运行应用' }}</div>
+                                <div class="device-app-line">{{ dev.app_name if dev.app_name else '暂无运行应用' }}</div>
                                 <div class="battery-inline">
                                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>
                                     <span>{% if dev.battery_percent is not none %}{{ dev.battery_percent }}{% if '%' not in dev.battery_percent|string %}%{% endif %}{% else %}—%{% endif %}</span>
@@ -112,7 +107,6 @@
                         </div>
                         {%- endfor %}
                     </aside>
-                    <div class="device-detail" id="device-detail"></div>
                 </section>
 
                 <section class="panel analytics-panel charts" id="main-charts">

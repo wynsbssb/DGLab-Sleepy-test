@@ -93,7 +93,6 @@ Authorization: Bearer MySecretCannotGuess
 | [Jump](#query)       | `/query`       | `GET` | 获取状态         |
 | [Jump](#status-list) | `/status_list` | `GET` | 获取可用状态列表 |
 | [Jump](#metrics)     | `/metrics`     | `GET` | 获取统计信息     |
-| [Jump](#recent)      | `/recent`      | `GET` | 获取最近使用记录（聚合） |
 
 ### query
 
@@ -220,50 +219,6 @@ Authorization: Bearer MySecretCannotGuess
     }
 }
 ```
-
-### recent
-
-[Back to ## read-only](#read-only)
-
-> `/recent`
-
-获取最近的应用使用记录，聚合所有设备，默认返回最近 24 小时内最多 10 条记录。
-
-* Method: GET
-* 无需鉴权
-* Params: `hours` *(可选，默认 24)*，`limit` *(可选，默认 10，上限取决于数据量)*
-
-#### Response
-
-```jsonc
-// 200 OK
-{
-    "success": true,
-    "hours": 24,
-    "limit": 10,
-    "records": [
-        {
-            "app_name": "哔哩哔哩",
-            "device_id": "laptop-01",
-            "start_time": 1735622400,
-            "end_time": 1735624200,
-            "duration": 1800,
-            "status": "stopped"
-        },
-        {
-            "app_name": "QQ",
-            "device_id": "phone-01",
-            "start_time": 1735624200,
-            "end_time": null,
-            "duration": 520,
-            "status": "running"
-        }
-    ]
-}
-```
-
-> [!NOTE]
-> 原有的“生成图片”接口已移除，不再提供图片生成服务。
 
 ## Status
 
