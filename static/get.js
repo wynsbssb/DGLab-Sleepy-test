@@ -138,44 +138,6 @@ function updateElement(data) {
         if (runtimeEl) runtimeEl.textContent = runtimeSeconds ? `${Math.max(1, Math.round(runtimeSeconds/60))} 分钟` : '—';
     }
 
-    const resolveDeviceState = (device) => {
-        const app = device.app_name || '';
-        if (device.using) return { label: '运行中', cls: 'status-running' };
-        if (/待机|standby/i.test(app)) return { label: '待机', cls: 'status-standby' };
-        return { label: '已停止', cls: 'status-stopped' };
-    };
-
-    const findBatteryPercent = (device) => {
-        if (typeof device.battery_percent === 'number') return device.battery_percent;
-        if (typeof device.battery_percent === 'string') {
-            const ms = device.battery_percent.match(/(\d{1,3})/);
-            if (ms) return parseInt(ms[1], 10);
-        }
-        try {
-            const m = (device.app_name || '').match(/电量[:：]?\s*(\d{1,3})%/);
-            const m2 = (device.app_name || '').match(/🔋\s*(\d{1,3})%/);
-            if (m) return parseInt(m[1], 10);
-            if (m2) return parseInt(m2[1], 10);
-        } catch(e) { /* ignore */ }
-        return null;
-    };
-
-    function updateStatusStrip(details, device) {
-        const lastAppEl = document.getElementById('last-app');
-        const stateEl = document.getElementById('device-state');
-        const runtimeEl = document.getElementById('runtime-minutes');
-        const statusMeta = device ? resolveDeviceState(device) : { label: '—' };
-        const lastRecent = details && details.recent && details.recent.length ? details.recent[0] : null;
-        const lastAppRaw = (lastRecent && lastRecent.app_name) || (device && device.app_name) || '';
-        const displayApp = /待机|standby/i.test(lastAppRaw || '') ? '设备待机' : (lastAppRaw || '暂无记录');
-        const totalSeconds = details && details.totals_seconds ? Object.values(details.totals_seconds).reduce((s,x)=>s+(x||0),0) : 0;
-        const runtimeSeconds = (device && device.using && details && details.current_runtime) ? details.current_runtime : totalSeconds;
-
-        if (lastAppEl) lastAppEl.textContent = displayApp;
-        if (stateEl) stateEl.textContent = statusMeta.label;
-        if (runtimeEl) runtimeEl.textContent = runtimeSeconds ? `${Math.max(1, Math.round(runtimeSeconds/60))} 分钟` : '—';
-    }
-
     if (devicesListEl) {
         devicesListEl.innerHTML = '';
         for (let [id, device] of devicesEntries) {
@@ -194,6 +156,24 @@ function updateElement(data) {
     }
 
 
+    const showDashboardError = (msg) => {
+        const parts = [
+            ['donut-root', true],
+            ['hourly-root', true],
+            ['progress-list', false],
+            ['recent-table', false],
+        ];
+        parts.forEach(([id, wrap]) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.innerHTML = `<div class="muted">${msg}</div>`;
+                if (wrap) {
+                    el.parentElement?.classList?.add('chart-error');
+                }
+            }
+        });
+    };
+
     const firstEntry = data.device && Object.keys(data.device).length ? Object.entries(data.device)[0] : null;
     const chosenId = (window.selectedDeviceId && data.device[window.selectedDeviceId]) ? window.selectedDeviceId : (firstEntry ? firstEntry[0] : null);
     if (chosenId) {
@@ -205,10 +185,12 @@ function updateElement(data) {
             if (jd.success && jd.history) {
                 renderDashboardAggregate(jd.history, data.device[chosenId]);
             } else {
+                showDashboardError('暂无可用数据');
                 updateStatusStrip(null, data.device[chosenId]);
             }
         } catch (e) {
             console.warn('history fetch failed', e);
+            showDashboardError('加载失败，请稍后重试');
             updateStatusStrip(null, data.device[chosenId]);
         }
     }
