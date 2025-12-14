@@ -67,13 +67,6 @@
                         <div class="stat-value">—</div>
                         <div class="stat-label">最常用应用</div>
                     </div>
-                    <div class="stat-card stat-purple" id="stat-top-hour">
-                        <div class="stat-icon" aria-hidden="true">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 12h18" stroke="#E6EEF3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.18"/><path d="M7 8v8" stroke="#E6EEF3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/><path d="M12 6v12" stroke="#E6EEF3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/></svg>
-                        </div>
-                        <div class="stat-value">—</div>
-                        <div class="stat-label">最活跃时段</div>
-                    </div>
                 </div>
             </div>
 
@@ -153,17 +146,6 @@
             <!-- more_text START -->
             {{ more_text | safe }}
             <!-- more_text END -->
-            <p>你可以通过这个页面视奸 <b>{{ env.page.user }}</b>。<br>
-                <a href="{{ env.page.repo }}" target="_blank" style="color: rgb(0, 255, 0);">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width:1em;">
-                        <path
-                            d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112V432c0 44.2 35.8 80 80 80H400c44.2 0 80-35.8 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32V432c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16H192c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z" />
-                    </svg>
-                    <!-- learn_more START -->
-                    {{ env.page.learn_more | safe }}
-                    <!-- learn_more END -->
-                </a>
-            </p>
         </div>
     </div>
 
