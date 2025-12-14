@@ -365,6 +365,31 @@ input[type="range"]::-webkit-slider-thumb {
 /* smooth transitions for text color */
 .device-card, .device-card * { transition: color 160ms ease, background 160ms ease }
 
+/* expanded inline details */
+.device-card .card-expand-body { max-height: 0; overflow: hidden; transition: max-height 360ms cubic-bezier(.2,.8,.2,1), padding 240ms ease; padding: 0 0; }
+.device-card.expanded { box-shadow: 0 20px 60px rgba(21,112,239,0.12); border-color: rgba(21,112,239,0.18); }
+.device-card.expanded .card-expand-body { max-height: 300px; padding: 12px 0 0 0; }
+
+/* expand toggle button */
+.expand-toggle { background: transparent; border: 1px solid rgba(255,255,255,0.06); padding:6px; border-radius:6px; color: rgba(255,255,255,0.9); cursor:pointer }
+.expand-toggle:focus { outline: 2px solid rgba(21,112,239,0.18); outline-offset: 2px }
+
+/* refined status pill size */
+.status-pill { padding:3px 8px; font-size:0.78em }
+
+/* focus states for keyboard navigation */
+.device-box:focus, .device-card:focus { outline: 2px solid rgba(21,112,239,0.12); outline-offset: 2px }
+
+/* battery baseline alignment */
+.card-head > div:last-child { display:flex; align-items:center }
+
+/* small-screen adjustments */
+@media (max-width: 720px) {
+  .devices-list { width:100%; max-height:200px }
+  .device-detail { width:100%; margin-top:12px }
+  .device-card { padding:10px }
+}
+
 .device-status {
     margin-top:8px;
     color: #555;
@@ -378,9 +403,10 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .mini-grid { display:flex; gap:4px; margin-top:6px; }
-.mini-hour { width:10px; height:18px; border-radius:2px; background: #eee; }
-.mini-hour.filled { background: #2E7D32; }
-.mini-hour.empty { background: #eee; opacity:0.45 }
+.mini-hour { width:10px; height:18px; border-radius:2px; background: rgba(255,255,255,0.06); }
+.mini-hour.filled { background: #2E7D32; box-shadow: 0 2px 6px rgba(46,125,50,0.08);} 
+.mini-hour.empty { background: rgba(255,255,255,0.03); opacity:0.7 }
+.history-grid-mini { display:flex; gap:4px; margin-top:6px }
 
 .summary-row { display:flex; gap:12px; flex-wrap:wrap; }
 .stat-box { border:1px solid rgba(0,0,0,0.06); padding:8px 10px; border-radius:6px; background:#fff; }

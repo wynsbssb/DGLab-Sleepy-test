@@ -430,19 +430,25 @@ function updateElement(data) {
             document.getElementById('all-history').innerHTML = '<div class="muted">获取聚合历史失败</div>';
         }
 
-        // 每台设备的卡片
-        const wrap = document.createElement('div');
+        // 每台设备的卡片（优先更新已有服务端渲染的卡片）
+        const wrap = document.querySelector('.devices-detail-grid') || document.createElement('div');
         wrap.className = 'devices-detail-grid';
         for (let [id, device] of Object.entries(data.device)) {
-            const card = document.createElement('div');
-                const card = document.createElement('div');
-                card.dataset.id = id; // Add data-id attribute
+            // find existing card if server rendered it
+            let card = document.querySelector(`.device-card[data-id="${id}"]`);
             const show = device.show_name || id;
             const battery = parseBattery(device.app_name || '');
             const alive = device.using ? '使用中' : '已停止';
             const dType = detectDeviceType(show, id, device);
             const typeHtml = dType ? `<span class="device-type ${dType}" aria-hidden="true"></span>` : '';
             const batteryHtml = battery ? `<div class="battery ${battery.percent < 20 ? 'battery-low' : ''}"><div class="battery-shell"><div class="battery-inner" style="width:${battery.percent}%;"></div></div><div class="battery-text">${battery.percent}%</div></div>` : `<div class="battery-text muted">—</div>`;
+            let isNew = false;
+            if (!card) {
+                card = document.createElement('div');
+                card.className = 'device-card';
+                card.dataset.id = id;
+                isNew = true;
+            }
             // status pill logic (non-intrusive, only show when meaningful)
             let statusClass = 'stopped';
             let statusText = '已停止';
@@ -456,12 +462,47 @@ function updateElement(data) {
 
             card.innerHTML = `<div class="card-head"><div><div class="device-title">${typeHtml}${escapeHtml(show)}</div></div><div>${batteryHtml}</div></div><div class="device-status"><span class="label">当前应用：</span>${appHtml}</div><div class="mini-history muted">加载...</div><div class="status-pill ${statusClass}" style="display:block">${statusText}</div>`;
             // click toggles detailed view and active visual state
-            card.addEventListener('click', () => {
-                document.querySelectorAll('.device-card').forEach(c => c.classList.remove('active'));
-                card.classList.add('active');
-                selectDevice(id, device);
-            });
-            wrap.appendChild(card);
+            if (isNew) {
+                card.addEventListener('click', () => {
+                    document.querySelectorAll('.device-card').forEach(c => c.classList.remove('active'));
+                    card.classList.add('active');
+                    selectDevice(id, device);
+                });
+                wrap.appendChild(card);
+            }
+            // Attach expand toggle behavior (works on server-rendered & client-rendered cards)
+            (function(cEl, did){
+                const btn = cEl.querySelector('.expand-toggle');
+                const body = cEl.querySelector(`#expand-${did}`);
+                if (!btn || !body) return;
+                btn.addEventListener('click', async (e)=>{
+                    e.stopPropagation();
+                    const expanded = cEl.classList.toggle('expanded');
+                    btn.setAttribute('aria-expanded', expanded? 'true':'false');
+                    body.setAttribute('aria-hidden', expanded? 'false':'true');
+                    // load mini history into expand body on first expand
+                    if (expanded && body.innerHTML.trim()==='') {
+                        body.innerHTML = '<div class="loading">加载中...</div>';
+                        try {
+                            const r = await fetch(`/device/history?id=${encodeURIComponent(did)}&hours=6`);
+                            const jd = await r.json();
+                            if (jd.success && jd.history) {
+                                const cont = document.createElement('div');
+                                cont.className = 'mini-expand-grid';
+                                cont.innerHTML = `<div class="muted">过去6小时（逐小时）</div>`;
+                                const grid = document.createElement('div'); grid.className='history-grid-mini';
+                                jd.history.hourly.forEach(h=>{ const d=document.createElement('div'); d.className='mini-hour '+(h.top_app? 'filled':'empty'); d.title=`${h.hour} — ${h.top_app||'—'}`; grid.appendChild(d); });
+                                cont.appendChild(grid);
+                                body.innerHTML = ''; body.appendChild(cont);
+                            } else {
+                                body.innerHTML = '<div class="muted">无历史</div>';
+                            }
+                        } catch(e){ body.innerHTML = '<div class="muted">加载失败</div>'; }
+                    }
+                });
+                // keyboard support on card and box
+                cEl.addEventListener('keydown', (ev)=>{ if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); btn.click(); } });
+            })(card, id);
             // fetch mini history for each device (6小时缩略图)
             (async function(cardEl, did) {
                 try {

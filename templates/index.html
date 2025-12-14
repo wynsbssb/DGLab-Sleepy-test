@@ -34,8 +34,55 @@
             <h3><i><b>{{ env.page.user }}'s</b></i> Status:<br><a id="status">{{ status['name'] }}</a></h3>
             <p id="additional-info">{{ status['desc'] | safe }}</p>
             <div class="devices-container">
-                <div class="devices-list" id="devices-list"></div>
-                <div class="device-detail" id="device-detail">请选择设备查看详细信息</div>
+                <div class="devices-list" id="devices-list" role="list" aria-label="设备列表">
+                    {%- for id, dev in devices.items() %}
+                    <div class="device-box" data-id="{{ id }}" role="listitem" tabindex="0">
+                        <div class="device-title">{{ dev.show_name }}</div>
+                        <div class="device-meta-row">
+                            <div class="status-dot {{ 'alive' if dev.using else 'idle' }}" aria-hidden="true"></div>
+                            <div class="meta-text">{{ '使用中' if dev.using else '未使用' }}</div>
+                            <div class="battery-inline">{{ dev.battery_percent if dev.battery_percent is not none else '—' }}</div>
+                        </div>
+                    </div>
+                    {%- endfor %}
+                </div>
+                <div class="device-detail" id="device-detail" role="region" aria-live="polite">
+                    <div class="devices-detail-grid">
+                        {%- for id, dev in devices.items() %}
+                        <div class="device-card" data-id="{{ id }}" tabindex="0" role="group" aria-labelledby="device-{{ id }}-title">
+                            <div class="card-head">
+                                <div>
+                                    <div class="device-title">
+                                        {% if dev.type == 'phone' %}
+                                            <span class="device-type phone" aria-hidden="true"></span>
+                                        {% elif dev.type == 'computer' %}
+                                            <span class="device-type computer" aria-hidden="true"></span>
+                                        {% endif %}
+                                        {{ dev.show_name }}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="display:flex;align-items:center;gap:8px">
+                                        <div class="battery">
+                                            <div class="battery-shell" aria-hidden="true">
+                                                <div class="battery-inner" style="width:{{ dev.battery_percent if dev.battery_percent is not none else 0 }}%"></div>
+                                            </div>
+                                            <div class="battery-text">{{ dev.battery_percent if dev.battery_percent is not none else '—' }}</div>
+                                        </div>
+                                        <button class="expand-toggle" aria-expanded="false" aria-controls="expand-{{ id }}">展开</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="device-status"><span class="label">当前应用：</span>{% if dev.app_name %}<span class="current-app" title="{{ dev.app_name }}">{{ dev.app_name }}</span>{% else %}<span class="muted">—</span>{% endif %}</div>
+                            <div class="mini-history muted">加载...</div>
+                            <div id="expand-{{ id }}" class="card-expand-body" aria-hidden="true"></div>
+                            {% set st = 'stopped' %}
+                            {% if dev.running %}{% set st='running' %}{% elif dev.syncing %}{% set st='sync' %}{% elif dev.error %}{% set st='error' %}{% elif dev.using %}{% set st='running' %}{% endif %}
+                            <div class="status-pill {{ st }}" style="display:block">{{ '运行中' if st == 'running' else ('同步中' if st=='sync' else ('异常' if st=='error' else '已停止')) }}</div>
+                        </div>
+                        {%- endfor %}
+                    </div>
+                </div>
             </div>
             
             <div style="height: 10px;"></div>
@@ -94,6 +141,8 @@
     {% endif %}
 
     <script>
+    <!-- Modal / popover placeholders (created dynamically by JS when needed) -->
+    <div id="modals" aria-hidden="true"></div>
         document.getElementById('status').classList.add("{{ status['color'] }}");
         
         // 初始化DG-Lab按钮状态

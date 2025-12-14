@@ -184,6 +184,53 @@ def index():
         )
     # 获取背景图片
     background_url = get_background_image()
+    # 准备设备的轻量视图（用于服务端首屏渲染）
+    import re
+    devices = {}
+    for _id, dv in d.data.get('device', {}).items():
+        app_name = dv.get('app_name') or ''
+        # parse battery percent if present
+        battery_pct = None
+        m = re.search(r'电量[:：]?\s*(\d{1,3})%', app_name)
+        if m:
+            try:
+                battery_pct = int(m.group(1))
+            except:
+                battery_pct = None
+        else:
+            m2 = re.search(r'🔋\s*(\d{1,3})%', app_name)
+            if m2:
+                try:
+                    battery_pct = int(m2.group(1))
+                except:
+                    battery_pct = None
+
+        # detect type from provided field or show_name
+        dtype = ''
+        tfield = dv.get('type') or dv.get('device_type') or ''
+        namefield = dv.get('show_name') or ''
+        if tfield:
+            tt = str(tfield).lower()
+            if any(x in tt for x in ('phone', 'mobile', 'android', 'iphone')):
+                dtype = 'phone'
+            elif any(x in tt for x in ('pc', 'win', 'mac', 'linux', 'desktop')):
+                dtype = 'computer'
+        else:
+            if re.search(r'手机|phone|android|iphone', namefield, re.I): dtype = 'phone'
+            if re.search(r'电脑|pc|win|mac|linux', namefield, re.I): dtype = 'computer'
+
+        devices[_id] = {
+            'id': _id,
+            'show_name': dv.get('show_name') or _id,
+            'app_name': app_name,
+            'using': bool(dv.get('using')),
+            'running': bool(dv.get('running')),
+            'syncing': bool(dv.get('syncing')),
+            'error': bool(dv.get('error')),
+            'battery_percent': battery_pct,
+            'type': dtype
+        }
+
     # 返回 html
     return flask.render_template(
         'index.html',
@@ -191,7 +238,8 @@ def index():
         more_text=more_text,
         status=status,
         last_updated=d.data['last_updated'],
-        background_url=background_url
+        background_url=background_url,
+        devices=devices
     ), 200
 
 
