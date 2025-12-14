@@ -195,6 +195,10 @@ def _draw_status_badge(draw: ImageDraw.ImageDraw, text: str, xy, font):
     color = STATUS_COLORS.get(text, (90, 96, 108))
     x1, y1 = xy
     text_w, text_h = _measure_text(draw, text, font)
+def _draw_status_badge(draw: ImageDraw.ImageDraw, text: str, xy, font):
+    color = STATUS_COLORS.get(text, (90, 96, 108))
+    x1, y1 = xy
+    text_w, text_h = draw.textsize(text, font=font)
     padding_x = 14
     padding_y = 8
     rect = [x1, y1, x1 + text_w + padding_x * 2, y1 + text_h + padding_y * 2]
