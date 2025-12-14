@@ -257,6 +257,12 @@ class data:
         lst = ah.setdefault(device_id, [])
         lst.append({'time': now, 'app_name': app_name or '', 'app_name_only': clean_name, 'app_pkg': app_pkg or '', 'using': bool(using)})
 
+        # 立即持久化，避免进程异常退出导致事件丢失
+        try:
+            self.save()
+        except Exception as e:
+            u.warning(f'[record_app_usage] failed to save: {e}')
+
         # 清理旧数据，仅保留最近 48 小时的记录以防增长过大
         try:
             cutoff = datetime.now(pytz.timezone(env.main.timezone))
