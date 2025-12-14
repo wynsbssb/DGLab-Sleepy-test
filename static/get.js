@@ -307,6 +307,48 @@ function updateElement(data) {
         modal.style.display = 'block';
     }
 
+    // bind expand toggle buttons for server-rendered and client-rendered cards
+    function bindExpandToggles() {
+        document.querySelectorAll('.device-box .expand-toggle, .device-card .expand-toggle').forEach(btn => {
+            if (btn.dataset.bound === 'true') return;
+            btn.dataset.bound = 'true';
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation(); e.preventDefault();
+                const parentBox = btn.closest('.device-box') || btn.closest('.device-card');
+                if (!parentBox) return;
+                const did = parentBox.dataset.id;
+                const expanded = parentBox.classList.toggle('expanded');
+                btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                const body = parentBox.querySelector(`#expand-${did}`) || parentBox.querySelector('.card-expand-body');
+                if (!body) return;
+                body.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+                if (expanded && body.innerHTML.trim() === '') {
+                    body.innerHTML = '<div class="loading">加载中...</div>';
+                    try {
+                        const r = await fetch(`/device/history?id=${encodeURIComponent(did)}&hours=6`);
+                        const jd = await r.json();
+                        if (jd.success && jd.history) {
+                            const cont = document.createElement('div');
+                            cont.className = 'mini-expand-grid';
+                            cont.innerHTML = `<div class="muted">过去6小时（逐小时）</div>`;
+                            const grid = document.createElement('div'); grid.className='history-grid-mini';
+                            jd.history.hourly.forEach(h=>{ const d=document.createElement('div'); d.className='mini-hour '+(h.top_app? 'filled':'empty'); d.title=`${h.hour} — ${h.top_app||'—'}`; grid.appendChild(d); });
+                            cont.appendChild(grid);
+                            body.innerHTML = ''; body.appendChild(cont);
+                        } else {
+                            body.innerHTML = '<div class="muted">无历史</div>';
+                        }
+                    } catch (e) {
+                        body.innerHTML = '<div class="muted">加载失败</div>';
+                    }
+                }
+            });
+            // keyboard support
+            const parent = btn.closest('.device-box') || btn.closest('.device-card');
+            if (parent) parent.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); btn.click(); } });
+        });
+    }
+
     // select app from donut: scroll to detail and highlight
     function selectAppFromDonut(appName){
         // find details row
@@ -379,6 +421,81 @@ function updateElement(data) {
         for(let i=0;i<n;i++) out.push(base[i%base.length]);
         return out;
     }
+
+    // Render dashboard aggregate panels, donut and hourly chart
+    function renderDashboardAggregate(details){
+        if(!details) return;
+        // top stats
+        const appCount = Object.keys(details.totals_seconds||{}).length || 0;
+        const totalSeconds = Object.values(details.totals_seconds||{}).reduce((s,x)=>s+(x||0),0) || 0;
+        const totalTimeText = totalSeconds >= 3600 ? Math.round(totalSeconds/3600)+'h' : Math.round(totalSeconds/60)+'m';
+        const topApp = details.top_app || '—';
+        // find top hour
+        let topHour = '—';
+        if(details.hourly_seconds){
+            let best = [null,0];
+            Object.entries(details.hourly_seconds).forEach(([h,s])=>{ if((s||0)>best[1]){ best=[h,s] } });
+            topHour = best[0] || '—';
+        } else if (details.hourly && details.hourly.length){
+            const b = details.hourly.reduce((a,b)=> ( (b.top_count||0) > (a.top_count||0) ? b : a ));
+            topHour = b && b.hour ? b.hour : '—';
+        }
+        const setText = (id,txt)=>{ const el=document.getElementById(id); if(el) el.querySelector('.stat-value').textContent=txt };
+        setText('stat-app-count', appCount);
+        setText('stat-total-time', totalTimeText);
+        setText('stat-top-app', topApp);
+        setText('stat-top-hour', topHour);
+
+        // donut data from totals_seconds
+        const totals = details.totals_seconds || {};
+        const entries = Object.entries(totals).sort((a,b)=>b[1]-a[1]);
+        const donutData = entries.map((it,i)=>({name:it[0], seconds:it[1]}));
+        const donutRoot = document.getElementById('donut-root');
+        if(donutRoot){
+            drawDonut(donutRoot, donutData.map((d,i)=>({name:d.name, seconds:d.seconds, color: generateColors(donutData.length)[i]})));
+        }
+
+        // hourly chart
+        const hourlyRoot = document.getElementById('hourly-root');
+        if(hourlyRoot){
+            hourlyRoot.innerHTML = '';
+            renderHistory(details.hourly || [], hourlyRoot);
+        }
+
+        // progress list
+        const pl = document.getElementById('progress-list');
+        if(pl){
+            pl.innerHTML = '';
+            const total = Math.max(1, totalSeconds);
+            entries.forEach(([name,sec],i)=>{
+                const pct = Math.round(sec/total*100);
+                const row = document.createElement('div'); row.className='app-row';
+                row.innerHTML = `<div><strong>${escapeHtml(name)}</strong></div><div>${Math.round(sec/60)}分 <span class="muted">(${pct}%)</span></div>`;
+                const prog = document.createElement('div'); prog.className='progress'; const fill = document.createElement('div'); fill.className='progress-fill'; fill.style.width=pct+'%'; fill.style.background=generateColors(entries.length)[i%7]; prog.appendChild(fill);
+                pl.appendChild(row); pl.appendChild(prog);
+            });
+        }
+
+        // recent table (if provided)
+        const recentRoot = document.getElementById('recent-table');
+        if(recentRoot){
+            recentRoot.innerHTML = '';
+            if(details.recent && details.recent.length){
+                const table = document.createElement('table');
+                table.innerHTML = `<tr><th>应用</th><th>开始</th><th>结束</th><th>持续</th></tr>`;
+                details.recent.slice(0,20).forEach(r=>{
+                    const tr = document.createElement('tr');
+                    const end = r.end_time? new Date(r.end_time*1000).toLocaleString() : '运行中';
+                    const dur = r.duration ? Math.round(r.duration)+'s' : (r.end_time? '—':'运行中');
+                    tr.innerHTML = `<td>${escapeHtml(r.app_name)}</td><td>${new Date(r.start_time*1000).toLocaleString()}</td><td>${end}</td><td>${dur}</td>`;
+                    table.appendChild(tr);
+                });
+                recentRoot.appendChild(table);
+            } else {
+                recentRoot.innerHTML = '<div class="muted">无最近记录</div>';
+            }
+        }
+    }
     // helper: 从 app_name 中解析电量信息
     function parseBattery(text) {
         if (!text) return null;
@@ -419,10 +536,12 @@ function updateElement(data) {
             const jd = await resp.json();
             if (jd.success && jd.history) {
                 const sum = document.getElementById('all-summary');
-                sum.innerHTML = `<div class="stat-box">最常用: <b>${escapeHtml(jd.history.top_app || '—')}</b><div class="muted">${jd.history.top_seconds}s</div></div>`;
+                if (sum) sum.innerHTML = `<div class="stat-box">最常用: <b>${escapeHtml(jd.history.top_app || '—')}</b><div class="muted">${jd.history.top_seconds}s</div></div>`;
                 const allHistoryWrap = document.getElementById('all-history');
                 if (allHistoryWrap) allHistoryWrap.dataset.hourlySeconds = JSON.stringify(jd.history.hourly_seconds || {});
                 renderHistory(jd.history.hourly, allHistoryWrap);
+                // render dashboard aggregate panels and charts
+                try{ renderDashboardAggregate(jd.history); }catch(e){ console.warn('dashboard aggregate render failed', e); }
             } else {
                 document.getElementById('all-history').innerHTML = '<div class="muted">无聚合历史</div>';
             }
@@ -460,7 +579,9 @@ function updateElement(data) {
             const app = device.app_name || '';
             const appHtml = app ? `<span class="current-app" title="${escapeHtml(app)}">${escapeHtml(sliceText(app, 60))}</span>` : '<span class="muted">—</span>';
 
-            card.innerHTML = `<div class="card-head"><div><div class="device-title">${typeHtml}${escapeHtml(show)}</div></div><div>${batteryHtml}</div></div><div class="device-status"><span class="label">当前应用：</span>${appHtml}</div><div class="mini-history muted">加载...</div><div class="status-pill ${statusClass}" style="display:block">${statusText}</div>`;
+            card.innerHTML = `<div class="card-head"><div><div class="device-title">${typeHtml}${escapeHtml(show)}</div></div><div>${batteryHtml}</div></div><button class="expand-toggle" aria-expanded="false" aria-label="展开设备详情">` +
+                `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9l6 6 6-6" stroke="#E6EEF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` +
+                `<div class="device-status"><span class="label">当前应用：</span>${appHtml}</div><div class="mini-history muted">加载...</div><div id="expand-${id}" class="card-expand-body" aria-hidden="true"></div><div class="status-pill ${statusClass}" style="display:block">${statusText}</div>`;
             // click toggles detailed view and active visual state
             if (isNew) {
                 card.addEventListener('click', () => {
@@ -542,6 +663,8 @@ href="javascript:alert('浏览器最后更新时间: ${timenow}\\n数据最后�
 ${data.last_updated}
 </a>`;
     }
+    // bind expand toggles for any server-rendered or newly created elements
+    try { bindExpandToggles(); } catch(e) { console.warn('bindExpandToggles failed', e); }
 }
 
 // 全局变量 - 重要：保证所有函数可访问

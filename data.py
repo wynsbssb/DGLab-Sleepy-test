@@ -495,6 +495,32 @@ class data:
 
         base['per_app'] = per_app
         base['hourly_seconds'] = {k: int(v) for k, v in hourly_seconds.items()}
+        # recent sessions for this device (most recent first)
+        recent = []
+        # build sessions from events list used above
+        for i, ev in enumerate(events):
+            if not ev['using']:
+                continue
+            start = ev['ts']
+            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            # clip to window
+            if end <= start or end < start_ts:
+                continue
+            seg_start = max(start, start_ts)
+            seg_end = end
+            duration = int(seg_end - seg_start)
+            running = (i+1 >= len(events) and ev['using'] and (end >= now.timestamp() - 1))
+            recent.append({
+                'app_name': ev['app'],
+                'device_id': device_id,
+                'start_time': int(start),
+                'end_time': (None if running else int(end)),
+                'duration': duration,
+                'status': ('running' if running else 'stopped')
+            })
+        # sort and trim
+        recent.sort(key=lambda x: x['start_time'], reverse=True)
+        base['recent'] = recent[:200]
         return base
 
     def get_app_hour_breakdown(self, device_id: str, hour_key: str, hours: int = 24) -> dict:
@@ -659,6 +685,39 @@ class data:
                 top_count = 0
             res.append({'hour': key, 'counts': counts, 'top_app': top_app_h, 'top_count': top_count})
 
+        # build recent sessions across all devices
+        recent = []
+        for device_id, lst in self.data.get('app_history', {}).items():
+            # build events for this device
+            evs = []
+            for e in lst:
+                try:
+                    t = datetime.fromisoformat(e['time']).timestamp()
+                except Exception:
+                    continue
+                evs.append({'ts': t, 'app': e.get('app_name_only') or e.get('app_name') or '[unknown]', 'using': bool(e.get('using', False))})
+            evs.sort(key=lambda x: x['ts'])
+            for i, ev in enumerate(evs):
+                if not ev['using']:
+                    continue
+                start = ev['ts']
+                end = evs[i+1]['ts'] if i+1 < len(evs) else now.timestamp()
+                if end <= start or end < start_ts:
+                    continue
+                seg_start = max(start, start_ts)
+                seg_end = end
+                duration = int(seg_end - seg_start)
+                running = (i+1 >= len(evs) and ev['using'] and (end >= now.timestamp() - 1))
+                recent.append({
+                    'app_name': ev['app'],
+                    'device_id': device_id,
+                    'start_time': int(start),
+                    'end_time': (None if running else int(end)),
+                    'duration': duration,
+                    'status': ('running' if running else 'stopped')
+                })
+        recent.sort(key=lambda x: x['start_time'], reverse=True)
+
         return {
             'hours': hours,
             'totals_seconds': {k: int(v) for k, v in totals.items()},
@@ -667,7 +726,8 @@ class data:
             'current_app': current_app,
             'current_runtime': current_runtime,
             'hourly': res,
-            'per_app': {k: {'seconds': int(v), 'launches': 0} for k, v in totals.items()}
+            'per_app': {k: {'seconds': int(v), 'launches': 0} for k, v in totals.items()},
+            'recent': recent[:500]
         }
 
     # --- Timer check - save data

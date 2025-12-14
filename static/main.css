@@ -2,18 +2,25 @@
   --light-bg-rgb: 240, 248, 255;
   --dark-bg-rgb: 26, 21, 20;
   --card-alpha: 0.6;
+  --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  --accent-blue: #1570EF;
+  --accent-green: #2E7D32;
+  --accent-orange: #FF7043;
+  --accent-purple: #6C5CE7;
 }
 html {
   height: 100%;
   width: 100%;
 }
 body {
-  background-size: cover;
+  background: #0F1115; /* 深色背景 */
+  color: #E6EEF3;
   min-height: 100vh;
+  font-family: var(--font-family);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: stretch;
   background-attachment: fixed;
 }
 a {
@@ -109,9 +116,65 @@ div p {
   flex-direction: column;
   justify-content: center;
   width: 100%;
-  max-width: 100%;
-  padding: 20px;
+  max-width: 1200px;
+  padding: 24px;
   box-sizing: border-box;
+}
+
+/* Dashboard layout */
+.dashboard-top { margin-bottom: 18px }
+.stat-row { display:flex; gap:12px; }
+.stat-card { flex:1; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:16px; border-radius:12px; border:1px solid rgba(255,255,255,0.04); }
+.stat-card .stat-value { font-size:1.45em; font-weight:700 }
+.stat-card .stat-label { font-size:0.86em; color: rgba(230,238,243,0.7); margin-top:6px }
+.stat-card { flex:1; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:16px; border-radius:12px; border:1px solid rgba(255,255,255,0.04); display:flex; flex-direction:column; align-items:flex-start; gap:6px }
+.stat-card .stat-value { font-size:1.45em; font-weight:700 }
+.stat-card .stat-label { font-size:0.86em; color: rgba(230,238,243,0.7); margin-top:6px }
+.stat-card.blue { border-left:4px solid var(--accent-blue); box-shadow: 0 6px 18px rgba(21,112,239,0.04); }
+.stat-card.green { border-left:4px solid var(--accent-green); box-shadow: 0 6px 18px rgba(46,125,50,0.04); }
+.stat-card.orange { border-left:4px solid var(--accent-orange); box-shadow: 0 6px 18px rgba(255,112,67,0.04); }
+.stat-card.purple { border-left:4px solid var(--accent-purple); box-shadow: 0 6px 18px rgba(108,92,231,0.04); }
+
+/* hyphenated variants used in templates (stat-blue, stat-green, etc.) */
+.stat-card.stat-blue { border-left:4px solid var(--accent-blue); box-shadow: 0 6px 18px rgba(21,112,239,0.06); }
+.stat-card.stat-green { border-left:4px solid var(--accent-green); box-shadow: 0 6px 18px rgba(46,125,50,0.06); }
+.stat-card.stat-orange { border-left:4px solid var(--accent-orange); box-shadow: 0 6px 18px rgba(255,112,67,0.06); }
+.stat-card.stat-purple { border-left:4px solid var(--accent-purple); box-shadow: 0 6px 18px rgba(108,92,231,0.06); }
+
+/* stat card icon */
+.stat-card .stat-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.02);
+}
+.stat-card .stat-icon svg { width: 20px; height: 20px; opacity: 0.95 }
+.stat-card .stat-value { font-size:1.45em; font-weight:800; color: #FFFFFF }
+.stat-card .stat-label { font-size:0.82em; color: rgba(230,238,243,0.65); margin-top:4px }
+
+.dashboard-main { display:flex; gap:16px; align-items:flex-start }
+.devices-list { width: 260px; max-height: 68vh; overflow:auto; padding:8px; }
+.charts { flex:1; display:flex; flex-direction:column; gap:12px }
+.charts-top { display:flex; gap:12px }
+.chart-card { background: rgba(255,255,255,0.02); padding:12px; border-radius:12px; border:1px solid rgba(255,255,255,0.03); flex:1 }
+.charts-bottom { display:flex; gap:12px }
+.chart-card h4 { margin:0 0 8px 0 }
+
+/* recent table and progress list */
+#progress-list .app-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.02) }
+#recent-table table { width:100%; border-collapse:collapse; }
+#recent-table td, #recent-table th { padding:8px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:0.9em }
+
+/* small helpers */
+.muted { color: rgba(230,238,243,0.6) }
+
+@media (max-width: 900px) {
+  .dashboard-main { flex-direction:column }
+  .devices-list { width:100%; max-height:200px }
 }
 @media (max-width: 700px) {
   body {
@@ -331,6 +394,49 @@ input[type="range"]::-webkit-slider-thumb {
   align-items:center;
   gap:12px;
 }
+/* expand toggle button */
+.device-card .expand-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.03);
+  color: var(--accent-blue);
+  cursor: pointer;
+  transition: transform 180ms ease, background 160ms ease;
+}
+.device-card .expand-toggle svg { display:block }
+.device-card .expand-toggle[aria-expanded="true"] { transform: rotate(180deg); background: rgba(255,255,255,0.04) }
+.device-card .card-expand-body { max-height: 0; overflow: hidden; transition: max-height 360ms cubic-bezier(.2,.8,.2,1), padding 240ms ease; padding: 0 0; }
+.device-card.expanded .card-expand-body { max-height: 320px; padding: 12px 0 0 0; }
+
+/* also support expand toggles in server-rendered device-box list */
+.device-box { position: relative }
+.device-box .expand-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(255,255,255,0.02);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.03);
+  cursor: pointer;
+  transition: transform 140ms ease, background 120ms ease;
+}
+.device-box .expand-toggle svg { display:block }
+.device-box .expand-toggle[aria-expanded="true"] { transform: rotate(180deg); background: rgba(255,255,255,0.04) }
+.device-box .card-expand-body { max-height: 0; overflow: hidden; transition: max-height 320ms cubic-bezier(.2,.8,.2,1), padding 200ms ease; padding: 0 0; }
+.device-box.expanded .card-expand-body { max-height: 240px; padding: 10px 0 0 0; }
 .device-title { font-weight:600; font-size:1.02em; margin-bottom:6px; display:inline-flex; align-items:center; gap:8px }
 .device-type { width:16px; height:16px; display:inline-block; background-size:contain; background-repeat:no-repeat; opacity:0.95 }
 /* small built-in icons using CSS fallback shapes */
