@@ -101,7 +101,8 @@ async function updateElement(data) {
 
     // 更新设备状态
     var deviceStatus = '<hr/><b><p id="device-status"><i>Device</i> Status</p></b>';
-    const devicesEntries = Object.entries(data.device); // [id, obj]
+    const devicesMap = data.device || {};
+    const devicesEntries = Object.entries(devicesMap); // [id, obj]
     const devicesListEl = document.getElementById('devices-list');
 
     const resolveDeviceState = (device) => {
@@ -142,6 +143,36 @@ async function updateElement(data) {
         if (runtimeEl) runtimeEl.textContent = runtimeSeconds ? `${Math.max(1, Math.round(runtimeSeconds/60))} 分钟` : '—';
     }
 
+    const markActiveCard = () => {
+        if (!devicesListEl) return;
+        devicesListEl.querySelectorAll('.device-box').forEach(el => {
+            el.classList.toggle('active', el.dataset.id === window.selectedDeviceId);
+            el.setAttribute('aria-pressed', el.dataset.id === window.selectedDeviceId ? 'true' : 'false');
+        });
+    };
+
+    async function handleDeviceSelection(id) {
+        if (!id || !devicesMap[id]) return;
+        window.selectedDeviceId = id;
+        window.currentDevice = devicesMap[id];
+        markActiveCard();
+        updateStatusStrip(null, devicesMap[id]);
+        try {
+            const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
+            const jd = await resp.json();
+            if (jd.success && jd.history) {
+                renderDashboardAggregate(jd.history, devicesMap[id]);
+            } else {
+                showDashboardError('暂无可用数据');
+                updateStatusStrip(null, devicesMap[id]);
+            }
+        } catch (e) {
+            console.warn('history fetch failed', e);
+            showDashboardError('加载失败，请稍后重试');
+            updateStatusStrip(null, devicesMap[id]);
+        }
+    }
+
     if (devicesListEl) {
         devicesListEl.innerHTML = '';
         for (let [id, device] of devicesEntries) {
@@ -151,9 +182,20 @@ async function updateElement(data) {
             const box = document.createElement('div');
             box.className = `device-box ${statusMeta.cls}`;
             box.dataset.id = id;
+            box.setAttribute('role', 'button');
+            box.setAttribute('tabindex', '0');
+            box.setAttribute('aria-pressed', 'false');
             box.innerHTML = `<div class="device-box-head"><div class="device-title">${escapeHtml(device.show_name || id)}</div><span class="status-chip ${statusMeta.cls}">${statusMeta.label}</span></div>` +
                 `<div class="device-app-pill" title="${escapeHtml(device.app_name || '暂无运行应用')}"><span class="pill-label">当前应用</span><span class="pill-value">${device.app_name ? escapeHtml(device.app_name) : '暂无运行应用'}</span></div>` +
                 `<div class="device-meta-row"><div class="battery-inline"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg><span>${batteryText}</span></div></div>`;
+
+            box.addEventListener('click', () => handleDeviceSelection(id));
+            box.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault();
+                    handleDeviceSelection(id);
+                }
+            });
 
             devicesListEl.appendChild(box);
         }
@@ -178,25 +220,10 @@ async function updateElement(data) {
         });
     };
 
-    const firstEntry = data.device && Object.keys(data.device).length ? Object.entries(data.device)[0] : null;
-    const chosenId = (window.selectedDeviceId && data.device[window.selectedDeviceId]) ? window.selectedDeviceId : (firstEntry ? firstEntry[0] : null);
+    const firstEntry = devicesEntries.length ? devicesEntries[0] : null;
+    const chosenId = (window.selectedDeviceId && devicesMap[window.selectedDeviceId]) ? window.selectedDeviceId : (firstEntry ? firstEntry[0] : null);
     if (chosenId) {
-        window.selectedDeviceId = chosenId;
-        window.currentDevice = data.device[chosenId];
-        try {
-            const resp = await fetch(`/device/history?id=${encodeURIComponent(chosenId)}&hours=24`);
-            const jd = await resp.json();
-            if (jd.success && jd.history) {
-                renderDashboardAggregate(jd.history, data.device[chosenId]);
-            } else {
-                showDashboardError('暂无可用数据');
-                updateStatusStrip(null, data.device[chosenId]);
-            }
-        } catch (e) {
-            console.warn('history fetch failed', e);
-            showDashboardError('加载失败，请稍后重试');
-            updateStatusStrip(null, data.device[chosenId]);
-        }
+        await handleDeviceSelection(chosenId);
     }
 
     function renderHistory(history, container) {
@@ -219,28 +246,42 @@ async function updateElement(data) {
         grid.className = 'history-grid';
         // determine max seconds for height scaling
         const secondsMap = (container.dataset.hourlySeconds) ? JSON.parse(container.dataset.hourlySeconds) : {};
-        const sumSec = Object.values(secondsMap).reduce((s,x)=>s+(x||0),0) || 1;
-        const maxSec = Math.max(1, history.reduce((m,h)=> Math.max(m, secondsMap[h.hour] || 0), 0));
-        history.forEach(h => {
+        const normalized = history.map((h) => {
+            const sec = secondsMap[h.hour] ?? (h.top_count || 0);
+            const hourLabel = (() => {
+                try {
+                    return String(new Date(h.hour.replace(' ', 'T')).getHours()).padStart(2, '0');
+                } catch (e) {
+                    return h.hour;
+                }
+            })();
+            return { ...h, sec, hourLabel };
+        });
+        const sumSec = normalized.reduce((s, h) => s + (h.sec || 0), 0) || 1;
+        const maxSec = Math.max(1, normalized.reduce((m, h) => Math.max(m, h.sec || 0), 0));
+
+        normalized.forEach(h => {
             const div = document.createElement('div');
             div.className = 'hour';
-            const sec = secondsMap[h.hour] || 0;
-            const heightPct = Math.min(100, Math.round((sec / maxSec) * 100));
-            div.style.height = '28px';
-            div.style.display = 'flex';
-            div.style.alignItems = 'flex-end';
-            const pctOfDay = Math.round((sec / sumSec) * 100);
-            div.title = `${h.hour} — ${Math.round(sec/60)} 分钟 (${pctOfDay}% 当日占比)`;
+            const heightPct = Math.min(100, Math.round((h.sec / maxSec) * 100));
+            const pctOfDay = Math.round((h.sec / sumSec) * 100);
+            div.title = `${h.hour} — ${Math.round(h.sec/60)} 分钟 (${pctOfDay}% 当日占比)`;
+
             const bar = document.createElement('div');
             bar.className = h.top_app ? 'filled' : 'empty';
-            bar.style.width = '100%';
-            bar.style.height = (heightPct * 0.9) + '%';
-            bar.style.display = 'flex';
-            bar.style.alignItems = 'center';
-            bar.style.justifyContent='center';
-            bar.style.fontSize='10px';
-            if (h.top_app) bar.innerText = h.top_app;
-            div.appendChild(bar);
+            bar.style.height = Math.max(6, Math.round(heightPct * 0.9)) + '%';
+            bar.innerText = h.top_app ? sliceText(h.top_app, 8) : '';
+
+            const label = document.createElement('div');
+            label.className = 'hour-label';
+            label.textContent = h.hourLabel;
+
+            const barWrap = document.createElement('div');
+            barWrap.className = 'hour-bar';
+            barWrap.appendChild(bar);
+            barWrap.appendChild(label);
+
+            div.appendChild(barWrap);
             grid.appendChild(div);
         });
         container.appendChild(grid);
@@ -315,16 +356,33 @@ async function updateElement(data) {
             circle.setAttribute('stroke-dashoffset', `${-offset}`);
             circle.setAttribute('stroke-linecap','round');
             offset += segLength;
-            circle.addEventListener('click', ()=> { selectAppFromDonut(d.name); setCenter(d); });
-            circle.addEventListener('mouseover', ()=> setCenter(d));
+            circle.addEventListener('click', (evt)=> { selectAppFromDonut(d.name); setCenter(d); showTooltip(d, evt); });
+            circle.addEventListener('mouseover', (evt)=> { setCenter(d); showTooltip(d, evt); });
+            circle.addEventListener('mouseleave', hideTooltip);
             svg.appendChild(circle);
         });
 
         const center = document.createElement('div');
         center.className = 'donut-center';
+        const tooltip = document.createElement('div');
+        tooltip.className = 'donut-tooltip hidden';
+        graphic.appendChild(tooltip);
         function setCenter(d){
             const pct = Math.round((d.seconds/total)*100);
             center.innerHTML = `<div class="title">应用使用时间</div><div class="value">${formatDuration(d.seconds)}</div><div class="subtitle">${escapeHtml(d.name)} · ${pct}%</div>`;
+        }
+        function showTooltip(d, evt){
+            const pct = Math.round((d.seconds/total)*100);
+            tooltip.innerHTML = `<div class="tooltip-title">${escapeHtml(d.name)}</div><div class="tooltip-body"><span class="tooltip-swatch" style="background:${d.color}"></span>${escapeHtml(d.name)}: ${formatDuration(d.seconds)} (${pct}%)</div>`;
+            const rect = graphic.getBoundingClientRect();
+            const x = evt?.clientX ?? rect.left + rect.width / 2;
+            const y = evt?.clientY ?? rect.top + rect.height / 2;
+            tooltip.style.left = `${x - rect.left - 10}px`;
+            tooltip.style.top = `${y - rect.top - 10}px`;
+            tooltip.classList.remove('hidden');
+        }
+        function hideTooltip(){
+            tooltip.classList.add('hidden');
         }
         if(data.length) setCenter(data[0]);
 
@@ -340,9 +398,11 @@ async function updateElement(data) {
             item.innerHTML = `<div class="legend-swatch" style="background:${d.color}"></div>` +
                 `<div class="legend-text"><div class="legend-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</div>` +
                 `<div class="legend-meta">${formatDuration(d.seconds)} · ${pct}%</div></div>`;
-            item.addEventListener('click', ()=> { selectAppFromDonut(d.name); setCenter(d); });
+            item.addEventListener('click', (evt)=> { selectAppFromDonut(d.name); setCenter(d); showTooltip(d, evt); });
             legend.appendChild(item);
         });
+
+        graphic.addEventListener('mouseleave', hideTooltip);
 
         wrap.appendChild(graphic);
         wrap.appendChild(legend);
