@@ -178,6 +178,23 @@ def build_device_view_models(devices: Dict[str, dict], timezone: str) -> List[di
     return models
 
 
+def _measure_text(draw: ImageDraw.ImageDraw, text: str, font):
+    """兼容 Pillow 版本的文本测量工具。"""
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    except Exception:
+        pass
+    try:
+        return font.getsize(text)
+    except Exception:
+        return (0, 0)
+
+
+def _draw_status_badge(draw: ImageDraw.ImageDraw, text: str, xy, font):
+    color = STATUS_COLORS.get(text, (90, 96, 108))
+    x1, y1 = xy
+    text_w, text_h = _measure_text(draw, text, font)
 def _draw_status_badge(draw: ImageDraw.ImageDraw, text: str, xy, font):
     color = STATUS_COLORS.get(text, (90, 96, 108))
     x1, y1 = xy
