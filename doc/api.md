@@ -93,7 +93,7 @@ Authorization: Bearer MySecretCannotGuess
 | [Jump](#query)       | `/query`       | `GET` | 获取状态         |
 | [Jump](#status-list) | `/status_list` | `GET` | 获取可用状态列表 |
 | [Jump](#metrics)     | `/metrics`     | `GET` | 获取统计信息     |
-| [Jump](#recent)      | `/recent`      | `GET` | 获取最近使用记录（聚合） |
+| [Jump](#recent)      | `/recent`      | `GET` | 获取最近使用记录（按设备） |
 
 ### query
 
@@ -227,11 +227,11 @@ Authorization: Bearer MySecretCannotGuess
 
 > `/recent`
 
-获取最近的应用使用记录，聚合所有设备，默认返回最近 24 小时内最多 10 条记录。
+按设备获取最近的应用使用记录，默认返回最近 24 小时内最多 10 条记录。
 
 * Method: GET
 * 无需鉴权
-* Params: `hours` *(可选，默认 24)*，`limit` *(可选，默认 10，上限取决于数据量)*
+* Params: `id` *(必填，设备 ID)*，`hours` *(可选，默认 24)*，`limit` *(可选，默认 10，上限取决于数据量)*
 
 #### Response
 

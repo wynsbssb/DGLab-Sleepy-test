@@ -609,15 +609,19 @@ class data:
             }
         return res
 
-    def get_recent_records(self, hours: int = 24, limit: int = 10) -> list:
+    def get_recent_records(self, device_id: str, hours: int = 24, limit: int = 10) -> list:
         """
-        返回最近的应用使用记录，聚合所有设备，并限制返回数量。
+        返回指定设备最近的应用使用记录，并限制返回数量。
 
+        :param device_id: 设备 ID（必填）
         :param hours: 统计窗口，默认最近 24 小时
         :param limit: 最多返回的记录条数，默认 10
         """
-        # 复用聚合统计，避免重复实现 session 拆分逻辑
-        history = self.get_app_usage_aggregate(hours)
+        if not device_id:
+            raise ValueError('device_id required')
+
+        # 复用单设备的拆分逻辑，避免聚合后混淆设备来源
+        history = self.get_app_usage_details_v2(device_id, hours)
         recent = history.get('recent', []) if isinstance(history, dict) else []
         if not isinstance(recent, list):
             return []

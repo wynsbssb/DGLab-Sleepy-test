@@ -28,7 +28,7 @@
         <div class="card dashboard-card" id="user_status">
             <div class="dashboard-header">
                 <div>
-                    <p class="eyebrow"></p>
+                    <p class="eyebrow">设备应用使用统计</p>
                     <h1><ruby>似<rt>sǐ</rt></ruby>了吗?</h1>
                     <h3 class="subdued"><i><b>{{ env.page.user }}'s</b></i> Status:<br><a id="status">{{ status['name'] }}</a></h3>
                     <p id="additional-info">{{ status['desc'] | safe }}</p>
@@ -93,26 +93,22 @@
                         {% set status_label = '运行中' if dev.using else ('待机' if dev.app_name and '待机' in dev.app_name else '已停止') %}
                         <div class="device-box {{ status_class }}" data-id="{{ id }}" role="listitem" tabindex="0">
                             <div class="device-box-head">
-                                <div>
-                                    <div class="device-title">{{ dev.show_name }}</div>
-                                </div>
+                                <div class="device-title">{{ dev.show_name }}</div>
                                 <span class="status-chip {{ status_class }}">{{ status_label }}</span>
                             </div>
+                            <div class="device-app-pill" title="{{ dev.app_name if dev.app_name else '暂无运行应用' }}">
+                                <span class="pill-label">当前应用</span>
+                                <span class="pill-value">{{ dev.app_name if dev.app_name else '暂无运行应用' }}</span>
+                            </div>
                             <div class="device-meta-row">
-                                <div class="device-app-line">当前应用：{{ dev.app_name if dev.app_name else '暂无运行应用' }}</div>
                                 <div class="battery-inline">
                                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>
                                     <span>{% if dev.battery_percent is not none %}{{ dev.battery_percent }}{% if '%' not in dev.battery_percent|string %}%{% endif %}{% else %}—%{% endif %}</span>
                                 </div>
-                                <button class="expand-toggle" aria-expanded="false" aria-label="展开设备详情">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9l6 6 6-6" stroke="#E6EEF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                </button>
                             </div>
-                            <div id="expand-{{ id }}" class="card-expand-body" aria-hidden="true"></div>
                         </div>
                         {%- endfor %}
                     </aside>
-                    <div class="device-detail" id="device-detail"></div>
                 </section>
 
                 <section class="panel analytics-panel charts" id="main-charts">
