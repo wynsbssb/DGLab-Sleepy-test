@@ -12,6 +12,7 @@
 - [x] 实时更新设备使用状态 *(包括 是否正在使用 / 打开的应用名, 通过 **[client](./client/README.md)** 主动推送)*
 - [x] 美观的展示页面 [见 [Preview](#preview)]
 - [x] 开放的 Query / Metrics [接口](./doc/api.md), 方便统计
+- [x] `/recent` 接口聚合最近使用记录，便于外部看板/脚本调用 *(原先的生成图片接口已移除)*
 - [x] 支持 HTTPS (需要自行配置 SSL 证书)
 - [x] 接入[郊狼api](https://github.com/hyperzlib/DG-Lab-Coyote-Game-Hub)
 

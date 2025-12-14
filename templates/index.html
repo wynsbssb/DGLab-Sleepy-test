@@ -11,7 +11,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
     <style>
         body {
-            background: url('{{ background_url }}') no-repeat center center fixed;
+            background: radial-gradient(circle at 20% 20%, rgba(79, 139, 255, 0.12), transparent 32%),
+                        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(245, 247, 252, 0.95)),
+                        url('{{ background_url }}') no-repeat center center fixed;
             background-size: cover;
             background-position: center center;
             background-repeat: no-repeat;
@@ -22,17 +24,17 @@
 </head>
 
 <body>
-    <div class="container">
-        <div class="card light" id="user_status">
-            <h1><ruby>似<rt>sǐ</rt></ruby>了吗?</h1>
-
-            {% if env.page.moonlight %}
-            <!-- (moonlight) 透明度 / 暗色模式 -->
-            {% include "moonlight.html" %}
-            {% endif %}
-
-            <h3><i><b>{{ env.page.user }}'s</b></i> Status:<br><a id="status">{{ status['name'] }}</a></h3>
-            <p id="additional-info">{{ status['desc'] | safe }}</p>
+    <div class="container page-shell">
+        <div class="card dashboard-card" id="user_status">
+            <div class="dashboard-header">
+                <div>
+                    <p class="eyebrow">设备 + 应用使用统计</p>
+                    <h1><ruby>似<rt>sǐ</rt></ruby>了吗?</h1>
+                    <h3 class="subdued"><i><b>{{ env.page.user }}'s</b></i> Status:<br><a id="status">{{ status['name'] }}</a></h3>
+                    <p id="additional-info">{{ status['desc'] | safe }}</p>
+                </div>
+                <div class="header-actions"></div>
+            </div>
             <!-- Dashboard top stats -->
             <div class="dashboard-top">
                 <div id="top-stats" class="stat-row">
@@ -57,35 +59,49 @@
                         <div class="stat-value">—</div>
                         <div class="stat-label">最常用应用</div>
                     </div>
-                    <div class="stat-card stat-purple" id="stat-top-hour">
-                        <div class="stat-icon" aria-hidden="true">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 12h18" stroke="#E6EEF3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.18"/><path d="M7 8v8" stroke="#E6EEF3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/><path d="M12 6v12" stroke="#E6EEF3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/></svg>
-                        </div>
-                        <div class="stat-value">—</div>
-                        <div class="stat-label">最活跃时段</div>
-                    </div>
                 </div>
             </div>
 
             <div class="dashboard-main">
-                <aside class="devices-list" id="devices-list" role="list" aria-label="设备列表">
-                    {%- for id, dev in devices.items() %}
-                    <div class="device-box" data-id="{{ id }}" role="listitem" tabindex="0">
-                        <div class="device-title">{{ dev.show_name }}</div>
-                        <button class="expand-toggle" aria-expanded="false" aria-label="展开设备详情">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9l6 6 6-6" stroke="#E6EEF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="device-meta-row">
-                            <div class="status-dot {{ 'alive' if dev.using else 'idle' }}" aria-hidden="true"></div>
-                            <div class="meta-text">{{ '使用中' if dev.using else '未使用' }}</div>
-                            <div class="battery-inline">{{ dev.battery_percent if dev.battery_percent is not none else '—' }}</div>
+                <section class="panel devices-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">设备列表</p>
+                            <h4>实时状态</h4>
                         </div>
-                        <div id="expand-{{ id }}" class="card-expand-body" aria-hidden="true"></div>
+                        <button class="ghost-btn" id="refresh-devices" aria-label="刷新设备状态">
+                            <span class="btn-icon" aria-hidden="true">⟳</span> 刷新
+                        </button>
                     </div>
-                    {%- endfor %}
-                </aside>
+                    <aside class="devices-list" id="devices-list" role="list" aria-label="设备列表">
+                        {%- for id, dev in devices.items() %}
+                        {% set status_class = 'status-running' if dev.using else ('status-standby' if dev.app_name and '待机' in dev.app_name else 'status-stopped') %}
+                        {% set status_label = '运行中' if dev.using else ('待机' if dev.app_name and '待机' in dev.app_name else '已停止') %}
+                        <div class="device-box {{ status_class }}" data-id="{{ id }}" role="listitem" tabindex="0">
+                            <div class="device-box-head">
+                                <div>
+                                    <div class="device-title">{{ dev.show_name }}</div>
+                                </div>
+                                <span class="status-chip {{ status_class }}">{{ status_label }}</span>
+                            </div>
+                            <div class="device-meta-row">
+                                <div class="device-app-line">当前应用：{{ dev.app_name if dev.app_name else '暂无运行应用' }}</div>
+                                <div class="battery-inline">
+                                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>
+                                    <span>{% if dev.battery_percent is not none %}{{ dev.battery_percent }}{% if '%' not in dev.battery_percent|string %}%{% endif %}{% else %}—%{% endif %}</span>
+                                </div>
+                                <button class="expand-toggle" aria-expanded="false" aria-label="展开设备详情">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9l6 6 6-6" stroke="#E6EEF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                </button>
+                            </div>
+                            <div id="expand-{{ id }}" class="card-expand-body" aria-hidden="true"></div>
+                        </div>
+                        {%- endfor %}
+                    </aside>
+                    <div class="device-detail" id="device-detail"></div>
+                </section>
 
-                <section class="charts" id="main-charts">
+                <section class="panel analytics-panel charts" id="main-charts">
                     <div class="charts-top">
                         <div class="chart-card" id="donut-card"><div id="donut-root">加载中...</div></div>
                         <div class="chart-card" id="hourly-card"><div id="hourly-root">加载中...</div></div>
@@ -96,11 +112,10 @@
                     </div>
                 </section>
             </div>
-            
-            <div style="height: 10px;"></div>
-            <button onclick="handleButton1Click()" class="dg-btn"><img src="https://dungeon-lab.cn/img/logo-new.png"
-                    alt="DG-LAB" class="text-icon">雷元素攻击！</button>
-            <div style="height: 10px;"></div>
+
+            <div class="action-row">
+                <button onclick="handleButton1Click()" class="dg-btn"><img src="https://dungeon-lab.cn/img/logo-new.png" alt="DG-LAB" class="text-icon">雷元素攻击！</button>
+            </div>
 
             {% if env.util.steam_enabled %}
             <!-- (steam) Steam 状态模块 (iframe) -->
@@ -115,7 +130,7 @@
         {% include "zhixue.html" %}
         {% endif %}
 
-        <div class="card light" id="more_text">
+        <div class="card dashboard-card secondary-card" id="more_text">
             {% if env.page.hitokoto %}
             <!-- (hitokoto) 一言 -->
             {% include "hitokoto.html" %}
@@ -123,17 +138,6 @@
             <!-- more_text START -->
             {{ more_text | safe }}
             <!-- more_text END -->
-            <p>你可以通过这个页面视奸 <b>{{ env.page.user }}</b>。<br>
-                <a href="{{ env.page.repo }}" target="_blank" style="color: rgb(0, 255, 0);">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width:1em;">
-                        <path
-                            d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112V432c0 44.2 35.8 80 80 80H400c44.2 0 80-35.8 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32V432c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16H192c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z" />
-                    </svg>
-                    <!-- learn_more START -->
-                    {{ env.page.learn_more | safe }}
-                    <!-- learn_more END -->
-                </a>
-            </p>
         </div>
     </div>
 
