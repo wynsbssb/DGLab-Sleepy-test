@@ -109,12 +109,12 @@ def _normalize_app_status(raw: Optional[str], device: dict) -> str:
         if "back" in txt or txt in ("background",):
             return "后台"
         if "stop" in txt or "idle" in txt:
-            return "已停止"
+            return "已锁屏"
     if device.get("running") or device.get("using"):
         return "运行中"
     if device.get("background"):
         return "后台"
-    return "已停止"
+    return "已锁屏"
 
 
 def _normalize_platform(raw: Optional[str]) -> str:

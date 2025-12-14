@@ -209,7 +209,7 @@ async function updateElement(data) {
                 `<div class="device-app-grid">` +
                     `<div class="device-app-pill" title="${escapeHtml(mostUsedApp)}">` +
                         `<div class="pill-top">` +
-                            `<span class="pill-label">最常用应用</span>` +
+                            `<span class="pill-label">常用应用</span>` +
                             `<span class="pill-value">${escapeHtml(mostUsedApp)}</span>` +
                         `</div>` +
                     `</div>` +
