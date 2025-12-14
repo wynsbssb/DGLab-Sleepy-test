@@ -541,11 +541,17 @@ def device_history():
         hours = 24
     # 如果未指定 device id，则返回所有设备的聚合统计
     try:
+        hour_param = flask.request.args.get('hour')
         if not device_id:
             history = d.get_app_usage_aggregate(hours)
+            # if specific hour requested, include breakdown
+            if hour_param:
+                history['hour_breakdown'] = d.get_app_hour_breakdown('', hour_param, hours=hours)
         else:
             # 返回更详细的统计信息
-            history = d.get_app_usage_details(device_id, hours)
+            history = d.get_app_usage_details_v2(device_id, hours)
+            if hour_param:
+                history['hour_breakdown'] = d.get_app_hour_breakdown(device_id, hour_param, hours=hours)
     except Exception as e:
         return u.reterr(
             code='exception',

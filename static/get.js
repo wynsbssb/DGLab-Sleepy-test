@@ -141,6 +141,10 @@ function updateElement(data) {
         document.querySelectorAll('.device-box').forEach(b => b.classList.remove('active'));
         const box = document.querySelector(`.device-box[data-id="${id}"]`);
         if (box) box.classList.add('active');
+        // also sync device-card visual state
+        document.querySelectorAll('.device-card').forEach(c => c.classList.remove('active'));
+        const ccard = document.querySelector(`.device-card[data-id="${id}"]`);
+        if (ccard) ccard.classList.add('active');
         renderDeviceDetail(id, device);
     }
 
@@ -149,31 +153,83 @@ function updateElement(data) {
         const show = device.show_name || id;
         const using = device.using ? '使用中' : '未使用';
         const app = device.app_name || '';
-        deviceDetailEl.innerHTML = `<div class="info-box"><h4>${escapeHtml(show)}</h4><div class="meta">${escapeHtml(using)} ${escapeHtml(app ? ' - ' + app : '')}</div><div id="summary-wrap"><div class="loading">加载统计...</div></div><div id="history-wrap"><div class="loading">加载历史...</div></div></div>`;
+        const appHtml = app ? `<span class="current-app ${device.using? 'running-app':''}" title="${escapeHtml(app)}">${escapeHtml(sliceText(app,60))}</span>` : '<span class="muted">—</span>';
+        deviceDetailEl.innerHTML = `<div class="info-box"><h4>${escapeHtml(show)}</h4><div class="meta"><span class="label">当前应用：</span>${appHtml} <span class="muted">${escapeHtml(using)}</span></div><div id="summary-wrap"><div class="loading">加载统计...</div></div><div id="history-wrap"><div class="loading">加载历史...</div></div></div>`;
         try {
             const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
             const jd = await resp.json();
             if (jd.success && jd.history) {
-                // show summary
+                // show summary (加入图标和动画数字)
                 const sumwrap = document.getElementById('summary-wrap');
                 if (sumwrap) {
                     const details = jd.history;
                     let html = '<div class="summary-row">';
-                    html += `<div class="stat-box">最常用: <b>${escapeHtml(details.top_app || '—')}</b><div class="muted">${details.top_seconds}s</div></div>`;
-                    html += `<div class="stat-box">当前应用: <b>${escapeHtml(details.current_app || '—')}</b><div class="muted">运行 ${details.current_runtime}s</div></div>`;
+                    // most used with icon
+                    const mu = details.top_app || '—';
+                    const muInitial = mu && mu !== '—' ? mu.charAt(0).toUpperCase() : '?';
+                    html += `<div class="stat-box most-used"><div class="app-icon" data-initial="${escapeHtml(muInitial)}"></div><div class="stat-text">最常用: <b id="most-used-name">${escapeHtml(mu)}</b><div class="muted"><span id="most-used-seconds">${details.top_seconds}s</span></div></div></div>`;
+                    html += `<div class="stat-box"><svg class="timeline-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 12h18" stroke="#1570EF" stroke-width="2" stroke-linecap="round"/><path d="M7 8v8" stroke="#1570EF" stroke-width="2" stroke-linecap="round"/><path d="M12 6v12" stroke="#1570EF" stroke-width="2" stroke-linecap="round"/><path d="M17 10v4" stroke="#1570EF" stroke-width="2" stroke-linecap="round"/></svg><div class="stat-text">最活跃时段: <b id="most-active">${escapeHtml(details.hourly && details.hourly.length ? details.hourly.reduce((a,b)=> ( (b.top_count||0) > (a.top_count||0) ? b : a )).hour : '—')}</b></div></div>`;
                     html += '</div>';
                     sumwrap.innerHTML = html;
+                    // animate top seconds
+                    animateNumber(document.getElementById('most-used-seconds'), 0, details.top_seconds);
                 }
-                renderHistory(jd.history.hourly, document.getElementById('history-wrap'));
+                // pass hourly_seconds map to history container for scaling
+                const hrWrap = document.getElementById('history-wrap');
+                if (hrWrap) hrWrap.dataset.hourlySeconds = JSON.stringify(jd.history.hourly_seconds || {});
+                renderHistory(jd.history.hourly, hrWrap);
 
-                // also show totals list
+                // also show totals list (增强：环形图 + 可点击高亮)
                 if (jd.history.totals_seconds) {
                     const totals = jd.history.totals_seconds;
                     const tl = document.createElement('div');
                     tl.className = 'totals-list';
-                    let items = Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,6);
-                    if (items.length) {
-                        tl.innerHTML = '<div class="muted">常用应用排行（最近24小时）:</div>' + items.map(it=>`<div class="tot-item">${escapeHtml(it[0])} <span class="muted">— ${it[1]}s</span></div>`).join('');
+                    // build items and colors
+                    let items = Object.entries(totals).sort((a,b)=>b[1]-a[1]);
+                    // merge small ones into Other
+                    let major = [];
+                    let otherSec = 0;
+                    const mergeThreshold = 60; // seconds
+                    for (let it of items) {
+                        if (it[1] < mergeThreshold) otherSec += it[1]; else major.push(it);
+                    }
+                    if (otherSec > 0) major.push(['其他', otherSec]);
+                    // colors
+                    const colors = generateColors(major.length);
+                    // draw donut
+                    const donutWrap = document.createElement('div');
+                    donutWrap.className = 'donut-wrap';
+                    tl.appendChild(donutWrap);
+                    drawDonut(donutWrap, major.map((it,i)=>({name:it[0], seconds:it[1], color:colors[i]})));
+
+                    if (major.length) {
+                        tl.innerHTML += '<div class="muted">常用应用排行（最近24小时）:</div>';
+                        const listWrap = document.createElement('div');
+                        listWrap.className = 'totals-list-rows';
+                        // compute total seconds for progress
+                        const totalSeconds = major.reduce((s,it)=>s+it[1],0);
+                        // per_app stats map
+                        const perAppMap = jd.history.per_app || {};
+                        major.forEach((it,i)=>{
+                            const name = it[0];
+                            const seconds = it[1];
+                            const pct = totalSeconds>0?Math.round(seconds/totalSeconds*100):0;
+                            const color = colors[i];
+                            const row = document.createElement('div');
+                            row.className = 'tot-item detailed-row';
+                            if(i===0) row.classList.add('highlight');
+                            row.style.borderLeft = `4px solid ${color}`;
+                            row.innerHTML = `<div class="row-main"><div class="row-name">${escapeHtml(name)}</div><div class="row-time">${seconds}s <span class="muted">(${pct}%)</span></div></div><div class="progress"><div class="progress-fill" style="width:0%;background:${color}"></div></div>`;
+                            listWrap.appendChild(row);
+                            // animate fill
+                            setTimeout(()=>{ row.querySelector('.progress-fill').style.width = pct + '%'; }, 80);
+                            // click shows popover with details
+                            row.addEventListener('click', ()=>{
+                                const stats = perAppMap[name] || {seconds: seconds, launches:0, avg_session:0, last_used:0};
+                                showAppPopover(name, stats);
+                            });
+                        });
+                        tl.appendChild(listWrap);
                         document.getElementById('history-wrap').appendChild(tl);
                     }
                 }
@@ -186,29 +242,142 @@ function updateElement(data) {
     }
 
     function renderHistory(history, container) {
-        if (!container) return;
-        if (!history || history.length === 0) {
-            container.innerHTML = '<div style="opacity:0.7;margin-top:8px;">无历史数据</div>';
-            return;
-        }
-        const grid = document.createElement('div');
-        grid.className = 'history-grid';
-        history.forEach(h => {
-            const div = document.createElement('div');
-            div.className = 'hour';
-            if (h.top_app) {
-                div.classList.add('filled');
-                div.title = `${h.hour} - ${h.top_app} (${h.top_count})`;
-                div.innerText = h.top_app;
-            } else {
-                div.classList.add('empty');
-                div.title = `${h.hour} - 无数据`;
-                div.innerText = '';
+            if (!container) return;
+            if (!history || history.length === 0) {
+                container.innerHTML = '<div class="muted">无历史数据</div>';
+                return;
             }
-            grid.appendChild(div);
+            // determine max seconds for height scaling
+            const secondsMap = (container.dataset.hourlySeconds) ? JSON.parse(container.dataset.hourlySeconds) : {};
+            const sumSec = Object.values(secondsMap).reduce((s,x)=>s+(x||0),0) || 1;
+            const maxSec = Math.max(1, history.reduce((m,h)=> Math.max(m, secondsMap[h.hour] || 0), 0));
+            const grid = document.createElement('div');
+            grid.className = 'history-grid';
+            history.forEach(h => {
+                const div = document.createElement('div');
+                div.className = 'hour';
+                const sec = secondsMap[h.hour] || 0;
+                const heightPct = Math.min(100, Math.round((sec / maxSec) * 100));
+                div.style.height = '28px';
+                div.style.display = 'flex';
+                div.style.alignItems = 'flex-end';
+                const pctOfDay = Math.round((sec / sumSec) * 100);
+                div.title = `${h.hour} — ${Math.round(sec/60)} 分钟 (${pctOfDay}% 当日占比)`;
+                const bar = document.createElement('div');
+                bar.className = h.top_app ? 'filled' : 'empty';
+                bar.style.width = '100%';
+                bar.style.height = (heightPct * 0.9) + '%';
+                bar.style.display = 'flex';
+                bar.style.alignItems = 'center';
+                bar.style.justifyContent='center';
+                bar.style.fontSize='10px';
+                if (h.top_app) bar.innerText = h.top_app;
+                div.appendChild(bar);
+                // click to view hour breakdown
+                div.addEventListener('click', async ()=>{
+                    const parentId = container.closest('#device-detail') ? window.selectedDeviceId || '' : '';
+                    const q = parentId ? `?id=${encodeURIComponent(parentId)}&hours=24&hour=${encodeURIComponent(h.hour)}` : `?hours=24&hour=${encodeURIComponent(h.hour)}`;
+                    try {
+                        const resp = await fetch(`/device/history${q}`);
+                        const jd = await resp.json();
+                        if (jd.success) {
+                            showHourDetailModal(h.hour, jd.history.hour_breakdown || jd.history.hour_breakdown || {});
+                        }
+                    } catch (e) {
+                        alert('获取小时详情失败');
+                    }
+                });
+                grid.appendChild(div);
+            });
+            container.innerHTML = '<div class="muted" style="font-size:0.9em;margin-top:8px;">过去24小时（每格为一小时，点击查看该小时详情）</div>';
+            container.appendChild(grid);
+    }
+
+    // show modal/overlay for hour breakdown
+    function showHourDetailModal(hour, breakdown) {
+        // create simple popup
+        let modal = document.getElementById('hour-detail-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'hour-detail-modal';
+            modal.className = 'modal';
+            document.body.appendChild(modal);
+        }
+        modal.innerHTML = `<div class="modal-card"><h4>小时详情：${escapeHtml(hour)}</h4><div class="modal-body">${Object.entries(breakdown).length?Object.entries(breakdown).map(it=>`<div class="modal-row">${escapeHtml(it[0])} <span class="muted">— ${Math.round(it[1].seconds)}s</span></div>`).join(''):'无数据'}</div><div class="modal-actions"><button onclick="document.getElementById('hour-detail-modal').style.display='none'">关闭</button></div></div>`;
+        modal.style.display = 'block';
+    }
+
+    // select app from donut: scroll to detail and highlight
+    function selectAppFromDonut(appName){
+        // find details row
+        const rows = document.querySelectorAll('.tot-item');
+        for(const r of rows){
+            if(r.textContent.trim().startsWith(appName)){
+                r.scrollIntoView({behavior:'smooth', block:'center'});
+                r.classList.add('highlight');
+                setTimeout(()=> r.classList.remove('highlight'), 3000);
+                break;
+            }
+        }
+    }
+
+    // animate number helper
+    function animateNumber(el, from, to, duration=800){
+        if(!el) return;
+        from = Number(from)||0; to = Number(to)||0;
+        const start = performance.now();
+        function tick(now){
+            const p = Math.min(1, (now-start)/duration);
+            const cur = Math.round(from + (to-from)*p);
+            el.textContent = cur + 's';
+            if(p<1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+    }
+
+    // draw simple donut chart
+    function drawDonut(container, data){
+        container.innerHTML = '';
+        const total = data.reduce((s,i)=>s+i.seconds,0)||1;
+        const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.alignItems='center';
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('width','120'); svg.setAttribute('height','120');
+        svg.setAttribute('viewBox','0 0 42 42');
+        let start = 0;
+        data.forEach((d,i)=>{
+            const seg = d.seconds/total*100;
+            const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            circle.setAttribute('r','15.91549430918954');
+            circle.setAttribute('cx','21'); circle.setAttribute('cy','21');
+            circle.setAttribute('fill','transparent');
+            circle.setAttribute('stroke',d.color);
+            circle.setAttribute('stroke-width','6');
+            circle.setAttribute('stroke-dasharray',`${seg} ${100-seg}`);
+            circle.setAttribute('transform',`rotate(-90 21 21) translate(0 0)`);
+            circle.style.strokeDashoffset = `${-start}`;
+            start += seg;
+            svg.appendChild(circle);
+            circle.addEventListener('click', ()=> { selectAppFromDonut(d.name); updateDonutCenter(d); });
+            circle.addEventListener('mouseover', ()=> updateDonutCenter(d));
         });
-        container.innerHTML = '<div style="font-size:0.9em;margin-top:8px;">过去24小时（每格为一小时，鼠标悬停查看）</div>';
-        container.appendChild(grid);
+        const center = document.createElement('div');
+        center.className = 'donut-center';
+        center.style.width='80px'; center.style.height='80px'; center.style.marginLeft='8px'; center.style.display='flex'; center.style.flexDirection='column'; center.style.alignItems='center'; center.style.justifyContent='center'; center.style.fontSize='0.9em';
+        function updateDonutCenter(d){
+            center.innerHTML = `<div style="font-weight:700">${escapeHtml(d.name)}</div><div class="muted">${Math.round(d.seconds)}s</div>`;
+        }
+        if(data.length) updateDonutCenter(data[0]);
+        wrap.appendChild(svg);
+        wrap.appendChild(center);
+        container.appendChild(wrap);
+    }
+
+    // generate color palette
+    function generateColors(n){
+        const base = ['#1570EF','#2E7D32','#6C5CE7','#FF7043','#0288D1','#8E24AA','#03A9F4'];
+        const out = [];
+        for(let i=0;i<n;i++) out.push(base[i%base.length]);
+        return out;
     }
     // helper: 从 app_name 中解析电量信息
     function parseBattery(text) {
@@ -222,6 +391,18 @@ function updateElement(data) {
         const m3 = text.match(/\[(?:🔋)?(\d{1,3})%\s*.*?\]/);
         if (m3) return {percent: parseInt(m3[1], 10)};
         return null;
+    }
+
+    // 可选检测设备类型（用于显示小型图标）
+    function detectDeviceType(show, id, device) {
+        if (device && device.type) {
+            const t = String(device.type).toLowerCase();
+            if (t.includes('phone') || t.includes('mobile') || t.includes('phone') || t.includes('android') || t.includes('ios')) return 'phone';
+            if (t.includes('pc') || t.includes('win') || t.includes('mac') || t.includes('linux') || t.includes('desktop')) return 'computer';
+        }
+        if (/手机|Phone|Android|iPhone/i.test(show || '')) return 'phone';
+        if (/电脑|PC|Win|Mac|Linux/i.test(show || '')) return 'computer';
+        return '';
     }
 
     // 渲染所有设备和聚合统计
@@ -239,7 +420,9 @@ function updateElement(data) {
             if (jd.success && jd.history) {
                 const sum = document.getElementById('all-summary');
                 sum.innerHTML = `<div class="stat-box">最常用: <b>${escapeHtml(jd.history.top_app || '—')}</b><div class="muted">${jd.history.top_seconds}s</div></div>`;
-                renderHistory(jd.history.hourly, document.getElementById('all-history'));
+                const allHistoryWrap = document.getElementById('all-history');
+                if (allHistoryWrap) allHistoryWrap.dataset.hourlySeconds = JSON.stringify(jd.history.hourly_seconds || {});
+                renderHistory(jd.history.hourly, allHistoryWrap);
             } else {
                 document.getElementById('all-history').innerHTML = '<div class="muted">无聚合历史</div>';
             }
@@ -252,13 +435,32 @@ function updateElement(data) {
         wrap.className = 'devices-detail-grid';
         for (let [id, device] of Object.entries(data.device)) {
             const card = document.createElement('div');
-            card.className = 'device-card';
+                const card = document.createElement('div');
+                card.dataset.id = id; // Add data-id attribute
             const show = device.show_name || id;
             const battery = parseBattery(device.app_name || '');
-            const alive = device.using ? '使用中' : '空闲';
-            card.innerHTML = `<div class="card-head"><div class="device-title">${escapeHtml(show)}</div><div class="battery-box">${battery ? (battery.percent + '%') : '—'}</div></div><div class="device-status">${escapeHtml(alive)}</div><div class="mini-history muted">加载...</div>`;
-            // click toggles detailed view
-            card.addEventListener('click', () => selectDevice(id, device));
+            const alive = device.using ? '使用中' : '已停止';
+            const dType = detectDeviceType(show, id, device);
+            const typeHtml = dType ? `<span class="device-type ${dType}" aria-hidden="true"></span>` : '';
+            const batteryHtml = battery ? `<div class="battery ${battery.percent < 20 ? 'battery-low' : ''}"><div class="battery-shell"><div class="battery-inner" style="width:${battery.percent}%;"></div></div><div class="battery-text">${battery.percent}%</div></div>` : `<div class="battery-text muted">—</div>`;
+            // status pill logic (non-intrusive, only show when meaningful)
+            let statusClass = 'stopped';
+            let statusText = '已停止';
+            if (device.running) { statusClass = 'running'; statusText = '运行中'; }
+            else if (device.syncing) { statusClass = 'sync'; statusText = '同步中'; }
+            else if (device.error) { statusClass = 'error'; statusText = '异常'; }
+            else if (device.using) { statusClass = 'running'; statusText = '使用中'; }
+
+            const app = device.app_name || '';
+            const appHtml = app ? `<span class="current-app" title="${escapeHtml(app)}">${escapeHtml(sliceText(app, 60))}</span>` : '<span class="muted">—</span>';
+
+            card.innerHTML = `<div class="card-head"><div><div class="device-title">${typeHtml}${escapeHtml(show)}</div></div><div>${batteryHtml}</div></div><div class="device-status"><span class="label">当前应用：</span>${appHtml}</div><div class="mini-history muted">加载...</div><div class="status-pill ${statusClass}" style="display:block">${statusText}</div>`;
+            // click toggles detailed view and active visual state
+            card.addEventListener('click', () => {
+                document.querySelectorAll('.device-card').forEach(c => c.classList.remove('active'));
+                card.classList.add('active');
+                selectDevice(id, device);
+            });
             wrap.appendChild(card);
             // fetch mini history for each device (6小时缩略图)
             (async function(cardEl, did) {
@@ -568,4 +770,30 @@ async function update() {
 
         await sleep(refresh_time);
     }
+}
+
+// popover showing app details
+function showAppPopover(name, stats){
+    // remove existing
+    let pop = document.getElementById('app-popover');
+    if (pop) pop.remove();
+    pop = document.createElement('div');
+    pop.id = 'app-popover';
+    pop.className = 'popover';
+    const last = stats.last_used ? new Date(stats.last_used * 1000).toLocaleString() : '—';
+    pop.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${escapeHtml(name)}</div><div class="muted">今日启动次数: ${stats.launches || 0}</div><div class="muted">平均单次: ${stats.avg_session||0}s</div><div class="muted">最近一次使用: ${escapeHtml(last)}</div>`;
+    document.body.appendChild(pop);
+    // position near first matching row
+    const rows = document.querySelectorAll('.detailed-row');
+    for(const r of rows){
+        if(r.textContent.trim().startsWith(name)){
+            const rect = r.getBoundingClientRect();
+            pop.style.left = (rect.right + 12) + 'px';
+            pop.style.top = (rect.top + window.scrollY) + 'px';
+            break;
+        }
+    }
+    // auto dismiss on click outside
+    function onDoc(e){ if(!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', onDoc); }}
+    setTimeout(()=>document.addEventListener('click', onDoc), 10);
 }

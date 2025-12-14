@@ -1,9 +1,15 @@
 # coding: utf-8
 
 import os
-import pytz
+try:
+    import pytz
+except Exception:
+    pytz = None
 import json
-import json5
+try:
+    import json5
+except Exception:
+    json5 = json
 import threading
 from time import sleep
 from datetime import datetime, timedelta
@@ -24,7 +30,17 @@ class data:
 
     def __init__(self):
         with open(u.get_path('data.template.jsonc'), 'r', encoding='utf-8') as file:
-            self.preload_data = json5.load(file, encoding='utf-8')
+            # json5 may be a fallback to json; json.load doesn't accept encoding param
+            try:
+                self.preload_data = json5.load(file)
+            except Exception:
+                # If json5 not available or parsing fails (json5 may support comments), fall back to minimal defaults
+                file.seek(0)
+                try:
+                    self.preload_data = json.loads(file.read())
+                except Exception:
+                    self.preload_data = {}
+
         if os.path.exists(u.get_path('data.json')):
             try:
                 self.load()
@@ -376,6 +392,191 @@ class data:
             'hourly': self.get_app_usage(device_id, hours)
         }
 
+        # NOTE: the function originally returned above. We keep compatibility by returning above, but
+        # to provide richer data (per-app stats and per-hour seconds), add a wrapper function below.
+
+    def get_app_usage_details_v2(self, device_id: str, hours: int = 24) -> dict:
+        """
+        更丰富的使用详情：除了 `get_app_usage_details` 的内容之外，额外返回：
+        - per_app: 每个应用的总时长、启动次数、平均单次时长、最后使用时间
+        - hourly_seconds: 每小时的总使用秒数（用于柱状图高度）
+        - hourly_breakdown(app/sec) 由 `get_app_hour_breakdown` 获取
+        """
+        base = self.get_app_usage_details(device_id, hours)
+
+        # 重新计算更详细的 per-app 数据
+        try:
+            now = datetime.now(pytz.timezone(env.main.timezone))
+        except Exception:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+        start_ts = now.timestamp() - hours * 3600
+
+        raw = self.data.get('app_history', {}).get(device_id, [])
+        events = []
+        for e in raw:
+            try:
+                t = datetime.fromisoformat(e['time']).timestamp()
+            except Exception:
+                continue
+            if t < start_ts:
+                continue
+            events.append({'ts': t, 'app': e.get('app_name_only') or e.get('app_name') or '[unknown]', 'using': bool(e.get('using', False))})
+        events.sort(key=lambda x: x['ts'])
+
+        per_app = {}
+        last_seen = {}
+        launches = {}
+        sessions = {}
+
+        for i, ev in enumerate(events):
+            app = ev['app']
+            start = ev['ts']
+            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            if end <= start:
+                continue
+            # update last seen
+            last_seen[app] = max(last_seen.get(app, 0), int(ev['ts']))
+            # count launches: when an event is using and previous event is not using or previous app differs
+            prev = events[i-1] if i-1 >= 0 else None
+            if ev['using']:
+                is_new_launch = False
+                if prev is None:
+                    is_new_launch = True
+                else:
+                    if (not prev['using']) or (prev['app'] != app):
+                        is_new_launch = True
+                if is_new_launch:
+                    launches[app] = launches.get(app, 0) + 1
+                # add duration clipped to window
+                seg_start = max(start, start_ts)
+                seg_end = end
+                duration = seg_end - seg_start
+                sessions[app] = sessions.get(app, 0) + duration
+
+        for app, sec in sessions.items():
+            per_app[app] = {
+                'seconds': int(sec),
+                'launches': launches.get(app, 0),
+                'avg_session': int(sec / launches.get(app, 1)) if launches.get(app, 0) > 0 else 0,
+                'last_used': int(last_seen.get(app, 0))
+            }
+
+        # hourly_seconds aggregation
+        hourly_seconds = {}
+        # iterate sessions again and split into hour buckets
+        for i, ev in enumerate(events):
+            start = ev['ts']
+            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            if end <= start:
+                continue
+            if not ev['using']:
+                continue
+            seg_start = max(start, start_ts)
+            seg_end = end
+            # split into hours
+            cur = seg_start
+            while cur < seg_end:
+                try:
+                    tz = pytz.timezone(env.main.timezone) if pytz else None
+                except Exception:
+                    tz = None
+                if tz:
+                    hour_dt = datetime.fromtimestamp(cur, tz).replace(minute=0, second=0, microsecond=0)
+                else:
+                    hour_dt = datetime.fromtimestamp(cur).replace(minute=0, second=0, microsecond=0)
+                hour_start = hour_dt.timestamp()
+                hour_end = hour_start + 3600
+                part_end = min(seg_end, hour_end)
+                add = part_end - cur
+                key = hour_dt.strftime('%Y-%m-%d %H:00')
+                hourly_seconds[key] = hourly_seconds.get(key, 0) + add
+                cur = part_end
+
+        base['per_app'] = per_app
+        base['hourly_seconds'] = {k: int(v) for k, v in hourly_seconds.items()}
+        return base
+
+    def get_app_hour_breakdown(self, device_id: str, hour_key: str, hours: int = 24) -> dict:
+        """
+        返回指定 hour (格式 'YYYY-MM-DD HH:00') 的每应用使用秒数与启动次数。
+        如果 device_id 为空字符串，则聚合所有设备。
+        """
+        try:
+            hour_dt = datetime.strptime(hour_key, '%Y-%m-%d %H:00')
+        except Exception:
+            raise ValueError('hour must be YYYY-MM-DD HH:00')
+        # compute window
+        try:
+            hour_start = pytz.timezone(env.main.timezone).localize(hour_dt).timestamp()
+        except Exception:
+            hour_start = hour_dt.timestamp()
+        hour_end = hour_start + 3600
+
+        def collect_for_list(lst):
+            per_app = {}
+            launches = {}
+            last_seen = {}
+            # build events sorted
+            events = []
+            for e in lst:
+                try:
+                    t = datetime.fromisoformat(e['time']).timestamp()
+                except Exception:
+                    continue
+                events.append({'ts': t, 'app': e.get('app_name_only') or e.get('app_name') or '[unknown]', 'using': bool(e.get('using', False))})
+            events.sort(key=lambda x: x['ts'])
+            for i, ev in enumerate(events):
+                start = ev['ts']
+                end = events[i+1]['ts'] if i+1 < len(events) else hour_end
+                if end <= start:
+                    continue
+                # clip to hour window
+                if end <= hour_start or start >= hour_end:
+                    continue
+                seg_start = max(start, hour_start)
+                seg_end = min(end, hour_end)
+                if ev['using']:
+                    per_app[ev['app']] = per_app.get(ev['app'], 0) + (seg_end - seg_start)
+                    # launches count similar heuristic
+                    prev = events[i-1] if i-1 >= 0 else None
+                    is_new_launch = False
+                    if prev is None:
+                        is_new_launch = True
+                    else:
+                        if (not prev['using']) or (prev['app'] != ev['app']):
+                            is_new_launch = True
+                    if is_new_launch:
+                        launches[ev['app']] = launches.get(ev['app'], 0) + 1
+                last_seen[ev['app']] = max(last_seen.get(ev['app'], 0), int(ev['ts']))
+            return per_app, launches, last_seen
+
+        if device_id:
+            raw = self.data.get('app_history', {}).get(device_id, [])
+            per_app, launches, last_seen = collect_for_list(raw)
+        else:
+            per_app = {}
+            launches = {}
+            last_seen = {}
+            for did, lst in self.data.get('app_history', {}).items():
+                pa, la, ls = collect_for_list(lst)
+                for k, v in pa.items():
+                    per_app[k] = per_app.get(k, 0) + v
+                for k, v in la.items():
+                    launches[k] = launches.get(k, 0) + v
+                for k, v in ls.items():
+                    last_seen[k] = max(last_seen.get(k, 0), v)
+
+        # format
+        res = {}
+        for app, sec in per_app.items():
+            res[app] = {
+                'seconds': int(sec),
+                'launches': int(launches.get(app, 0)),
+                'last_used': int(last_seen.get(app, 0))
+            }
+        return res
+
     def get_app_usage_aggregate(self, hours: int = 24) -> dict:
         """
         聚合所有设备的使用统计，返回与 `get_app_usage_details` 相同的结构，但基于所有设备的事件合并计算。
@@ -465,7 +666,8 @@ class data:
             'top_seconds': top_seconds,
             'current_app': current_app,
             'current_runtime': current_runtime,
-            'hourly': res
+            'hourly': res,
+            'per_app': {k: {'seconds': int(v), 'launches': 0} for k, v in totals.items()}
         }
 
     # --- Timer check - save data

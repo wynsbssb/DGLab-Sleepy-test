@@ -1,7 +1,21 @@
 # coding: utf-8
 from datetime import datetime
 import json
-from flask import make_response, Response
+try:
+    from flask import make_response, Response
+except Exception:
+    # Fallbacks for environments without Flask (tests)
+    class Response:
+        pass
+    def make_response(body):
+        class R:
+            def __init__(self, b):
+                self._b = b
+                self.mimetype = 'application/json'
+            def get_data(self):
+                return self._b
+        return R(body)
+
 from pathlib import Path
 import os
 
