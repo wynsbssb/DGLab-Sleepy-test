@@ -176,36 +176,6 @@ async function updateElement(data) {
         }
     }
 
-    const markActiveCard = () => {
-        if (!devicesListEl) return;
-        devicesListEl.querySelectorAll('.device-box').forEach(el => {
-            el.classList.toggle('active', el.dataset.id === window.selectedDeviceId);
-            el.setAttribute('aria-pressed', el.dataset.id === window.selectedDeviceId ? 'true' : 'false');
-        });
-    };
-
-    async function handleDeviceSelection(id) {
-        if (!id || !devicesMap[id]) return;
-        window.selectedDeviceId = id;
-        window.currentDevice = devicesMap[id];
-        markActiveCard();
-        updateStatusStrip(null, devicesMap[id]);
-        try {
-            const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
-            const jd = await resp.json();
-            if (jd.success && jd.history) {
-                renderDashboardAggregate(jd.history, devicesMap[id]);
-            } else {
-                showDashboardError('暂无可用数据');
-                updateStatusStrip(null, devicesMap[id]);
-            }
-        } catch (e) {
-            console.warn('history fetch failed', e);
-            showDashboardError('加载失败，请稍后重试');
-            updateStatusStrip(null, devicesMap[id]);
-        }
-    }
-
     if (devicesListEl) {
         devicesListEl.innerHTML = '';
         for (let [id, device] of devicesEntries) {
