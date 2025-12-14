@@ -292,6 +292,12 @@ input[type="range"]::-webkit-slider-thumb {
 .device-box:hover { transform: translateY(-2px); background: rgba(255,255,255,0.08);} 
 .device-box.active { box-shadow: 0 6px 18px rgba(0,0,0,0.2); border-color: rgba(0,255,0,0.15);} 
 .device-box .meta { font-size: 0.9em; color: rgba(255,255,255,0.8);} 
+.device-meta-row { display:flex; gap:8px; align-items:center; font-size:0.95em; }
+.status-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.status-dot.alive { background: #2E7D32; box-shadow: 0 0 6px rgba(46,125,50,0.25); }
+.status-dot.idle { background: #9E9E9E; opacity:0.9; }
+.battery-inline { color: rgba(255,255,255,0.85); font-weight:600; }
+ 
 .device-detail {
   width: 55%;
   padding: 12px;
@@ -299,6 +305,62 @@ input[type="range"]::-webkit-slider-thumb {
   background: rgba(255,255,255,0.03);
   min-height: 120px;
 }
+
+/* 新的信息盒子样式 */
+.info-box {
+    border: 1px solid rgba(0,0,0,0.12);
+    background: rgba(255,255,255,0.85);
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.device-card {
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 8px;
+    padding: 10px;
+    margin: 8px 0;
+    background: rgba(255,255,255,0.9);
+}
+
+.device-card .card-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+.device-card .battery-box {
+    border:1px solid rgba(0,0,0,0.06);
+    padding:4px 8px;
+    border-radius:6px;
+    background:#fff;
+    font-weight:700;
+}
+
+.device-status {
+    margin-top:8px;
+    color: #555;
+}
+
+.devices-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill,minmax(220px,1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.mini-grid { display:flex; gap:4px; margin-top:6px; }
+.mini-hour { width:10px; height:18px; border-radius:2px; background: #eee; }
+.mini-hour.filled { background: #2E7D32; }
+.mini-hour.empty { background: #eee; opacity:0.45 }
+
+.summary-row { display:flex; gap:12px; flex-wrap:wrap; }
+.stat-box { border:1px solid rgba(0,0,0,0.06); padding:8px 10px; border-radius:6px; background:#fff; }
+.muted { color: #666; font-size:0.9em; }
+.totals-list { margin-top:8px; }
+.tot-item { margin-top:4px; }
+.loading { opacity:0.7 }
+
+.history-wrap { margin-top:8px }
 .history-grid {
   display: grid;
   grid-template-columns: repeat(24, 1fr);

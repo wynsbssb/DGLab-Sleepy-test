@@ -539,13 +539,13 @@ def device_history():
         hours = int(flask.request.args.get('hours', '24'))
     except:
         hours = 24
-    if not device_id:
-        return u.reterr(
-            code='bad request',
-            message='missing param id'
-        ), 400
+    # 如果未指定 device id，则返回所有设备的聚合统计
     try:
-        history = d.get_app_usage(device_id, hours)
+        if not device_id:
+            history = d.get_app_usage_aggregate(hours)
+        else:
+            # 返回更详细的统计信息
+            history = d.get_app_usage_details(device_id, hours)
     except Exception as e:
         return u.reterr(
             code='exception',

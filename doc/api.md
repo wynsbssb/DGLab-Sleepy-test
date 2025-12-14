@@ -417,7 +417,7 @@ Authorization: Bearer MySecretCannotGuess
 
 [Back to ## device](#device)
 
-> `/device/history?id=<id>&hours=<n>`
+> `/device/history?id=<id>&hours=<n>` (如果未指定 `id` 则返回所有设备的聚合统计)
 
 获取指定设备过去若干小时（默认 24h）的使用历史与统计。
 

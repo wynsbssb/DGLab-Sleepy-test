@@ -376,6 +376,98 @@ class data:
             'hourly': self.get_app_usage(device_id, hours)
         }
 
+    def get_app_usage_aggregate(self, hours: int = 24) -> dict:
+        """
+        聚合所有设备的使用统计，返回与 `get_app_usage_details` 相同的结构，但基于所有设备的事件合并计算。
+        """
+        # collect all events across devices
+        all_raw = []
+        for device_id, lst in self.data.get('app_history', {}).items():
+            for e in lst:
+                all_raw.append(e)
+
+        # temporarily store and sort events similar to get_app_usage_details
+        try:
+            now = datetime.now(pytz.timezone(env.main.timezone))
+        except Exception:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+        start_ts = now.timestamp() - hours * 3600
+
+        events = []
+        for e in all_raw:
+            try:
+                t = datetime.fromisoformat(e['time']).timestamp()
+            except Exception:
+                continue
+            events.append({'ts': t, 'app': e.get('app_name_only') or e.get('app_name') or '[unknown]', 'using': bool(e.get('using', False))})
+        events.sort(key=lambda x: x['ts'])
+
+        totals = {}
+        for i, ev in enumerate(events):
+            start = ev['ts']
+            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            if end <= start:
+                continue
+            if end < start_ts:
+                continue
+            seg_start = max(start, start_ts)
+            seg_end = end
+            duration = seg_end - seg_start
+            if ev['using']:
+                totals[ev['app']] = totals.get(ev['app'], 0) + duration
+
+        if totals:
+            top_app = max(totals.items(), key=lambda x: x[1])[0]
+            top_seconds = int(totals[top_app])
+        else:
+            top_app = None
+            top_seconds = 0
+
+        # current app - for aggregate we don't define a single current app, leave None
+        current_app = None
+        current_runtime = 0
+
+        # hourly buckets: merge per-hour counts across devices
+        buckets = {}
+        for e in all_raw:
+            try:
+                t = datetime.fromisoformat(e['time'])
+            except Exception:
+                continue
+            ts = t.timestamp()
+            if ts < start_ts:
+                continue
+            hour_dt = t.replace(minute=0, second=0, microsecond=0)
+            key = hour_dt.strftime('%Y-%m-%d %H:00')
+            counts = buckets.setdefault(key, {})
+            app = e.get('app_name_only') or e.get('app_name') or '[unknown]'
+            counts[app] = counts.get(app, 0) + 1
+
+        # build hourly array
+        res = []
+        for i in range(hours, 0, -1):
+            hour_dt = (now - timedelta(hours=i-1)).replace(minute=0, second=0, microsecond=0)
+            key = hour_dt.strftime('%Y-%m-%d %H:00')
+            counts = buckets.get(key, {})
+            if counts:
+                top_app_h = max(counts.items(), key=lambda x: x[1])[0]
+                top_count = counts[top_app_h]
+            else:
+                top_app_h = None
+                top_count = 0
+            res.append({'hour': key, 'counts': counts, 'top_app': top_app_h, 'top_count': top_count})
+
+        return {
+            'hours': hours,
+            'totals_seconds': {k: int(v) for k, v in totals.items()},
+            'top_app': top_app,
+            'top_seconds': top_seconds,
+            'current_app': current_app,
+            'current_runtime': current_runtime,
+            'hourly': res
+        }
+
     # --- Timer check - save data
 
     def start_timer_check(self, data_check_interval: int = 60):

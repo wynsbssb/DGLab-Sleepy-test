@@ -95,13 +95,23 @@ function updateElement(data) {
             box.dataset.id = id;
 
             const title = document.createElement('div');
+            title.className = 'device-title';
             title.innerText = device.show_name || id;
             const meta = document.createElement('div');
             meta.className = 'meta';
-            meta.innerText = device.using ? (device.app_name || '使用中') : '未使用';
+            // 解析电量
+            let batteryText = '';
+            try {
+                const m = (device.app_name || '').match(/电量[:：]?\s*(\d{1,3})%/);
+                const m2 = (device.app_name || '').match(/🔋\s*(\d{1,3})%/);
+                batteryText = m ? (m[1] + '%') : (m2 ? (m2[1] + '%') : '');
+            } catch(e) { batteryText = ''; }
+            const statusEl = document.createElement('div');
+            statusEl.className = 'device-meta-row';
+            statusEl.innerHTML = `<div class="status-dot ${device.using ? 'alive' : 'idle'}"></div> <div class="meta-text">${escapeHtml(device.using ? (device.app_name || '使用中') : '未使用')}</div> <div class="battery-inline">${batteryText ? (' ' + escapeHtml(batteryText)) : ''}</div>`;
 
             box.appendChild(title);
-            box.appendChild(meta);
+            box.appendChild(statusEl);
 
             box.addEventListener('click', function () {
                 selectDevice(id, device);
@@ -116,25 +126,16 @@ function updateElement(data) {
         }
     }
 
-    // 如果页面首次加载且 server 指定了 track_device_id，默认选中它
-    if (!window.selectedDeviceId && data.track_device_id) {
-        if (data.device[data.track_device_id]) {
-            window.selectedDeviceId = data.track_device_id;
-            selectDevice(data.track_device_id, data.device[data.track_device_id]);
-        }
-    }
-
-    // 如果当前有选中设备，刷新它的详情（以便显示最新的 app_name）
+    // 不再自动选中 server 指定的 device id，改为显示聚合与所有设备详情
+    // 如果当前有选中设备则刷新它的详情（以便显示最新的 app_name）
     if (window.selectedDeviceId && data.device[window.selectedDeviceId]) {
         renderDeviceDetail(window.selectedDeviceId, data.device[window.selectedDeviceId]);
+    } else {
+        // 显示所有设备的聚合与每台设备的卡片视图
+        renderAllDevices(data);
     }
 
-    // 如果没有选中项，则显示简单文本
-    if (!window.selectedDeviceId && deviceDetailEl) {
-        deviceDetailEl.innerHTML = '<div style="opacity:0.8;">请选择设备查看详细信息</div>';
-    }
-
-    // 选择设备并展示详情
+    // 选择设备并展示详情（保留单设备查看能力）
     window.selectDevice = function (id, device) {
         window.selectedDeviceId = id;
         document.querySelectorAll('.device-box').forEach(b => b.classList.remove('active'));
@@ -148,7 +149,7 @@ function updateElement(data) {
         const show = device.show_name || id;
         const using = device.using ? '使用中' : '未使用';
         const app = device.app_name || '';
-        deviceDetailEl.innerHTML = `<div><h4>${escapeHtml(show)}</h4><div class="meta">${escapeHtml(using)} ${escapeHtml(app ? ' - ' + app : '')}</div><div id="summary-wrap"><div style="opacity:0.8;margin-top:6px;">加载统计...</div></div><div id="history-wrap"><div style="opacity:0.7;margin-top:8px;">加载历史...</div></div></div>`;
+        deviceDetailEl.innerHTML = `<div class="info-box"><h4>${escapeHtml(show)}</h4><div class="meta">${escapeHtml(using)} ${escapeHtml(app ? ' - ' + app : '')}</div><div id="summary-wrap"><div class="loading">加载统计...</div></div><div id="history-wrap"><div class="loading">加载历史...</div></div></div>`;
         try {
             const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
             const jd = await resp.json();
@@ -157,9 +158,9 @@ function updateElement(data) {
                 const sumwrap = document.getElementById('summary-wrap');
                 if (sumwrap) {
                     const details = jd.history;
-                    let html = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">';
-                    html += `<div style="opacity:0.9;">最常用: <b>${escapeHtml(details.top_app || '—')}</b> (${details.top_seconds}s)</div>`;
-                    html += `<div style="opacity:0.9;">当前应用: <b>${escapeHtml(details.current_app || '—')}</b> 运行 <b>${details.current_runtime}s</b></div>`;
+                    let html = '<div class="summary-row">';
+                    html += `<div class="stat-box">最常用: <b>${escapeHtml(details.top_app || '—')}</b><div class="muted">${details.top_seconds}s</div></div>`;
+                    html += `<div class="stat-box">当前应用: <b>${escapeHtml(details.current_app || '—')}</b><div class="muted">运行 ${details.current_runtime}s</div></div>`;
                     html += '</div>';
                     sumwrap.innerHTML = html;
                 }
@@ -169,19 +170,18 @@ function updateElement(data) {
                 if (jd.history.totals_seconds) {
                     const totals = jd.history.totals_seconds;
                     const tl = document.createElement('div');
-                    tl.style.marginTop = '8px';
-                    tl.style.fontSize = '0.9em';
+                    tl.className = 'totals-list';
                     let items = Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,6);
                     if (items.length) {
-                        tl.innerHTML = '<div style="opacity:0.8;">常用应用排行（最近24小时）:</div>' + items.map(it=>`<div style="margin-top:4px;">${escapeHtml(it[0])} — ${it[1]}s</div>`).join('');
+                        tl.innerHTML = '<div class="muted">常用应用排行（最近24小时）:</div>' + items.map(it=>`<div class="tot-item">${escapeHtml(it[0])} <span class="muted">— ${it[1]}s</span></div>`).join('');
                         document.getElementById('history-wrap').appendChild(tl);
                     }
                 }
             } else {
-                document.getElementById('history-wrap').innerHTML = '<div style="opacity:0.7;margin-top:8px;">无历史数据</div>';
+                document.getElementById('history-wrap').innerHTML = '<div class="muted">无历史数据</div>';
             }
         } catch (e) {
-            document.getElementById('history-wrap').innerHTML = '<div style="opacity:0.7;margin-top:8px;">获取历史失败</div>';
+            document.getElementById('history-wrap').innerHTML = '<div class="muted">获取历史失败</div>';
         }
     }
 
@@ -210,7 +210,84 @@ function updateElement(data) {
         container.innerHTML = '<div style="font-size:0.9em;margin-top:8px;">过去24小时（每格为一小时，鼠标悬停查看）</div>';
         container.appendChild(grid);
     }
+    // helper: 从 app_name 中解析电量信息
+    function parseBattery(text) {
+        if (!text) return null;
+        // 支持格式: 电量:NN% 或 🔋NN% 或 [🔋NN%] 等
+        const m1 = text.match(/电量[:：]?\s*(\d{1,3})%/);
+        if (m1) return {percent: parseInt(m1[1], 10)};
+        const m2 = text.match(/🔋\s*(\d{1,3})%/);
+        if (m2) return {percent: parseInt(m2[1], 10)};
+        // 其他括号内形式
+        const m3 = text.match(/\[(?:🔋)?(\d{1,3})%\s*.*?\]/);
+        if (m3) return {percent: parseInt(m3[1], 10)};
+        return null;
+    }
 
+    // 渲染所有设备和聚合统计
+    async function renderAllDevices(data) {
+        if (!deviceDetailEl) return;
+        deviceDetailEl.innerHTML = '';
+        // All devices aggregate box
+        const allBox = document.createElement('div');
+        allBox.className = 'info-box all-devices-box';
+        allBox.innerHTML = '<h4>全部设备（聚合）</h4><div id="all-summary" class="summary-row"><div class="loading">加载聚合统计...</div></div><div id="all-history" class="history-wrap"><div class="loading">加载历史...</div></div>';
+        deviceDetailEl.appendChild(allBox);
+        try {
+            const resp = await fetch('/device/history?hours=24');
+            const jd = await resp.json();
+            if (jd.success && jd.history) {
+                const sum = document.getElementById('all-summary');
+                sum.innerHTML = `<div class="stat-box">最常用: <b>${escapeHtml(jd.history.top_app || '—')}</b><div class="muted">${jd.history.top_seconds}s</div></div>`;
+                renderHistory(jd.history.hourly, document.getElementById('all-history'));
+            } else {
+                document.getElementById('all-history').innerHTML = '<div class="muted">无聚合历史</div>';
+            }
+        } catch (e) {
+            document.getElementById('all-history').innerHTML = '<div class="muted">获取聚合历史失败</div>';
+        }
+
+        // 每台设备的卡片
+        const wrap = document.createElement('div');
+        wrap.className = 'devices-detail-grid';
+        for (let [id, device] of Object.entries(data.device)) {
+            const card = document.createElement('div');
+            card.className = 'device-card';
+            const show = device.show_name || id;
+            const battery = parseBattery(device.app_name || '');
+            const alive = device.using ? '使用中' : '空闲';
+            card.innerHTML = `<div class="card-head"><div class="device-title">${escapeHtml(show)}</div><div class="battery-box">${battery ? (battery.percent + '%') : '—'}</div></div><div class="device-status">${escapeHtml(alive)}</div><div class="mini-history muted">加载...</div>`;
+            // click toggles detailed view
+            card.addEventListener('click', () => selectDevice(id, device));
+            wrap.appendChild(card);
+            // fetch mini history for each device (6小时缩略图)
+            (async function(cardEl, did) {
+                try {
+                    const r = await fetch(`/device/history?id=${encodeURIComponent(did)}&hours=6`);
+                    const jd2 = await r.json();
+                    const mh = cardEl.querySelector('.mini-history');
+                    if (jd2.success && jd2.history) {
+                        const container = document.createElement('div');
+                        container.className = 'mini-grid';
+                        jd2.history.hourly.forEach(h => {
+                            const d = document.createElement('div');
+                            d.className = 'mini-hour' + (h.top_app ? ' filled' : ' empty');
+                            d.title = `${h.hour} - ${h.top_app || '—'}`;
+                            container.appendChild(d);
+                        });
+                        mh.innerHTML = '';
+                        mh.appendChild(container);
+                    } else {
+                        mh.innerHTML = '<div class="muted">无历史</div>';
+                    }
+                } catch (e) {
+                    const mh = cardEl.querySelector('.mini-history');
+                    mh.innerHTML = '<div class="muted">获取失败</div>';
+                }
+            })(card, id);
+        }
+        deviceDetailEl.appendChild(wrap);
+    }
     // 更新最后更新时间
     const timenow = getFormattedDate(new Date());
     if (lastUpdatedElement) {

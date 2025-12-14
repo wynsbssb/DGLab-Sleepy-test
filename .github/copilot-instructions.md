@@ -27,7 +27,7 @@ Short, actionable notes to help an AI get productive quickly in this repo.
   - Clients (in `/client`) push device info to `/device/set` (GET or POST) and use the project secret.
   - SSE live updates available on `/events` (server sends `update`/`heartbeat` events).
   - App usage events are recorded on each `/device/set` call. The server exposes `/device/history?id=<id>&hours=<n>` returning per-hour aggregates, per-app total seconds, most-used app, and current app runtime (useful for 24h charts and summaries).
-  - Add `sleepy_status_track_device_id` in `.env` to auto-select a device on page load and show its 24-hour app history.
+  - Previously `sleepy_status_track_device_id` could auto-select a device; the UI now shows aggregated stats and per-device cards by default.
   - Clients may include `app_name_only` and `app_pkg` in the `/device/set` payload to improve parsing accuracy (Magisk and Win_Simple now include these fields).
 
 - **Third-party integrations:**
