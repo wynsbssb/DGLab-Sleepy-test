@@ -585,7 +585,7 @@ function setupEventSource() {
     }
 
     // 创建新连接
-    evtSource = new EventSource('/events');
+    evtSource = new EventSource(baseUrl + 'events');
 
     // 监听连接打开事件
     evtSource.onopen = function () {
@@ -701,7 +701,7 @@ document.addEventListener('DOMContentLoaded', function () {
             refreshBtn.disabled = true;
             refreshBtn.classList.add('spinning');
             try {
-                const resp = await fetch('/query', { timeout: 10000 });
+                const resp = await fetch(baseUrl + 'query', { timeout: 10000 });
                 const jd = await resp.json();
                 if (jd.success) {
                     updateElement(jd);
@@ -714,6 +714,19 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
+    // 页面初始化时先拉取一次 /query，避免在 /events 未返回前一直停留在“加载中”
+    (async () => {
+        try {
+            const resp = await fetch(baseUrl + 'query', { timeout: 10000 });
+            const jd = await resp.json();
+            if (jd && jd.success) {
+                updateElement(jd);
+            }
+        } catch (e) {
+            console.warn('初始查询失败', e);
+        }
+    })();
 
     // 检查浏览器是否支持SSE
     if (typeof (EventSource) !== "undefined") {
