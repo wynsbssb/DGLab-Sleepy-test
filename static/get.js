@@ -5,6 +5,7 @@ const normalizedPath = currentPath.endsWith('/')
     ? currentPath
     : currentPath.replace(/[^/]+$/, '/');
 const baseUrl = `${currentUrl.origin}${normalizedPath}`;
+const HEART_DEVICE_IDS = new Set(['mi10band', 'heart']);
 
 // sleep (只能加 await 在 async 函数中使用)
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
@@ -52,6 +53,40 @@ function formatDuration(seconds) {
     }
     return `${sec}秒`;
 }
+
+function parseHeartRate(value) {
+    if (value === null || value === undefined) return null;
+    const m = String(value).trim().match(/(-?\d+(?:\.\d+)?)\s*bpm$/i);
+    if (!m) return null;
+    const num = Number(m[1]);
+    return Number.isNaN(num) ? null : num;
+}
+
+function formatHeartRateValue(value) {
+    if (value === null || value === undefined) return null;
+    const num = Number(value);
+    if (Number.isNaN(num)) return null;
+    return `${Math.round(num)} bpm`;
+}
+
+const isHeartDevice = (id) => {
+    if (!id) return false;
+    return HEART_DEVICE_IDS.has(String(id).toLowerCase());
+};
+
+const toggleHeartCard = (visible) => {
+    const card = document.getElementById('heart-card');
+    if (!card) return;
+    card.style.display = visible ? '' : 'none';
+    if (!visible) {
+        const currentEl = document.getElementById('heart-current-value');
+        const rangeEl = document.getElementById('heart-range');
+        const chartEl = document.getElementById('heart-chart-root');
+        if (currentEl) currentEl.textContent = '—';
+        if (rangeEl) rangeEl.textContent = '—';
+        if (chartEl) chartEl.innerHTML = '<div class="heart-empty">仅心率设备显示</div>';
+    }
+};
 
 function getFormattedDate(date) {
     const pad = (num) => (num < 10 ? '0' + num : num);
@@ -127,9 +162,22 @@ async function updateElement(data) {
         return null;
     };
 
+    const resolveHeartRate = (device, details) => {
+        if (details && details.heart_rate && (details.heart_rate.current || details.heart_rate.current === 0)) {
+            return details.heart_rate.current;
+        }
+        if (device && (device.heart_rate || device.heart_rate === 0)) {
+            return device.heart_rate;
+        }
+        const text = device ? (device.app_name || '') : '';
+        return parseHeartRate(text);
+    };
+
     const resolveCurrentApp = (device, details) => {
         const lastRecent = details && details.recent && details.recent.length ? details.recent[0] : null;
         const lastAppRaw = (lastRecent && lastRecent.app_name) || (device && device.app_name) || '';
+        const heart = resolveHeartRate(device, details) ?? parseHeartRate(lastAppRaw);
+        if (heart !== null) return `心率 ${formatHeartRateValue(heart)}`;
         return /待机|standby/i.test(lastAppRaw || '') ? '设备待机' : (lastAppRaw || '暂无记录');
     };
 
@@ -138,16 +186,19 @@ async function updateElement(data) {
         const stateEl = document.getElementById('device-state');
         const runtimeEl = document.getElementById('runtime-minutes');
         const batteryEl = document.getElementById('battery-level');
+        const heartRateEl = document.getElementById('status-heart-rate');
         const statusMeta = device ? resolveDeviceState(device) : { label: '—' };
         const displayApp = resolveCurrentApp(device, details);
         const totalSeconds = details && details.totals_seconds ? Object.values(details.totals_seconds).reduce((s,x)=>s+(x||0),0) : 0;
         const runtimeSeconds = (device && device.using && details && details.current_runtime) ? details.current_runtime : totalSeconds;
         const batteryPct = device ? findBatteryPercent(device) : null;
+        const heartRate = resolveHeartRate(device, details);
 
         if (lastAppEl) lastAppEl.textContent = displayApp;
         if (stateEl) stateEl.textContent = statusMeta.label;
         if (runtimeEl) runtimeEl.textContent = runtimeSeconds ? `${Math.max(1, Math.round(runtimeSeconds/60))} 分钟` : '—';
         if (batteryEl) batteryEl.textContent = batteryPct !== null && batteryPct !== undefined ? `${batteryPct}%` : '—';
+        if (heartRateEl) heartRateEl.textContent = heartRate !== null && heartRate !== undefined ? formatHeartRateValue(heartRate) : '—';
     }
 
     const markActiveCard = () => {
@@ -162,20 +213,24 @@ async function updateElement(data) {
         if (!id || !devicesMap[id]) return;
         window.selectedDeviceId = id;
         window.currentDevice = devicesMap[id];
+        const heartDevice = isHeartDevice(id);
+        toggleHeartCard(heartDevice);
         markActiveCard();
         updateStatusStrip(null, devicesMap[id]);
         try {
             const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
             const jd = await resp.json();
             if (jd.success && jd.history) {
-                renderDashboardAggregate(jd.history, devicesMap[id], id);
+                renderDashboardAggregate(jd.history, devicesMap[id], id, heartDevice);
             } else {
                 showDashboardError('暂无可用数据');
+                renderHeartRateChart(null, heartDevice);
                 updateStatusStrip(null, devicesMap[id]);
             }
         } catch (e) {
             console.warn('history fetch failed', e);
             showDashboardError('加载失败，请稍后重试');
+            renderHeartRateChart(null, heartDevice);
             updateStatusStrip(null, devicesMap[id]);
         }
     }
@@ -187,7 +242,8 @@ async function updateElement(data) {
             const batteryPercent = findBatteryPercent(device);
             const batteryText = batteryPercent !== null && batteryPercent !== undefined ? `${batteryPercent}%` : '—%';
             const mostUsedApp = device.top_app || '暂无数据';
-            const currentApp = device.app_name ? device.app_name : '暂无运行应用';
+            const heartForCard = resolveHeartRate(device, null);
+            const currentApp = heartForCard !== null ? `心率 ${formatHeartRateValue(heartForCard)}` : (device.app_name ? device.app_name : '暂无运行应用');
             const box = document.createElement('div');
             box.className = `device-box ${statusMeta.cls}`;
             box.dataset.id = id;
@@ -238,9 +294,7 @@ async function updateElement(data) {
     const showDashboardError = (msg) => {
         const parts = [
             ['donut-root', true],
-            ['hourly-root', true],
             ['progress-list', false],
-            ['recent-table', false],
         ];
         parts.forEach(([id, wrap]) => {
             const el = document.getElementById(id);
@@ -259,66 +313,6 @@ async function updateElement(data) {
         await handleDeviceSelection(chosenId);
     }
 
-    function renderHistory(history, container) {
-        if (!container) return;
-        if (!history || !history.length) {
-            container.innerHTML = '<div class="muted">暂无历史</div>';
-            return;
-        }
-
-        // Build chart structure
-        if (container && !container.classList.contains('history-chart')) {
-            container.classList.add('history-chart');
-        }
-        const header = document.createElement('div');
-        header.className = 'history-header';
-        header.innerHTML = '<span>过去24小时</span><span class="muted">0-23 时段</span>';
-        container.innerHTML = '';
-        container.appendChild(header);
-        const grid = document.createElement('div');
-        grid.className = 'history-grid';
-        // determine max seconds for height scaling
-        const secondsMap = (container.dataset.hourlySeconds) ? JSON.parse(container.dataset.hourlySeconds) : {};
-        const normalized = history.map((h) => {
-            const sec = secondsMap[h.hour] ?? (h.top_count || 0);
-            const hourLabel = (() => {
-                try {
-                    return String(new Date(h.hour.replace(' ', 'T')).getHours()).padStart(2, '0');
-                } catch (e) {
-                    return h.hour;
-                }
-            })();
-            return { ...h, sec, hourLabel };
-        });
-        const sumSec = normalized.reduce((s, h) => s + (h.sec || 0), 0) || 1;
-        const maxSec = Math.max(1, normalized.reduce((m, h) => Math.max(m, h.sec || 0), 0));
-
-        normalized.forEach(h => {
-            const div = document.createElement('div');
-            div.className = 'hour';
-            const heightPct = Math.min(100, Math.round((h.sec / maxSec) * 100));
-            const pctOfDay = Math.round((h.sec / sumSec) * 100);
-            div.title = `${h.hour} — ${Math.round(h.sec/60)} 分钟 (${pctOfDay}% 当日占比)`;
-
-            const bar = document.createElement('div');
-            bar.className = h.top_app ? 'filled' : 'empty';
-            bar.style.height = Math.max(6, Math.round(heightPct * 0.9)) + '%';
-            bar.innerText = h.top_app ? sliceText(h.top_app, 8) : '';
-
-            const label = document.createElement('div');
-            label.className = 'hour-label';
-            label.textContent = h.hourLabel;
-
-            const barWrap = document.createElement('div');
-            barWrap.className = 'hour-bar';
-            barWrap.appendChild(bar);
-            barWrap.appendChild(label);
-
-            div.appendChild(barWrap);
-            grid.appendChild(div);
-        });
-        container.appendChild(grid);
-    }
     // select app from donut
     // select app from donut: scroll to detail and highlight
     function selectAppFromDonut(appName){
@@ -450,45 +444,139 @@ async function updateElement(data) {
         return out;
     }
 
-    function renderRecentTable(root, records){
-        if(!root) return;
-        root.innerHTML = '';
-        if(!records || !records.length){
-            root.innerHTML = '<div class="muted">无最近记录</div>';
+    function renderHeartRateChart(heartData, visible=true){
+        const root = document.getElementById('heart-chart-root');
+        const currentEl = document.getElementById('heart-current-value');
+        const rangeEl = document.getElementById('heart-range');
+        const stripEl = document.getElementById('status-heart-rate');
+
+        if (!visible) {
+            if (root) root.innerHTML = '<div class="heart-empty">仅心率设备显示</div>';
+            if (currentEl) currentEl.textContent = '—';
+            if (rangeEl) rangeEl.textContent = '—';
+            if (stripEl) stripEl.textContent = '—';
             return;
         }
-        const wrapper = document.createElement('div');
-        wrapper.className = 'recent-table-wrapper collapsed';
-        const table = document.createElement('table');
-        table.innerHTML = '<tr><th>应用</th><th>开始</th><th>结束</th><th>持续</th></tr>';
-        records.forEach(r=>{
-            const tr = document.createElement('tr');
-            if(!r.end_time || r.status === 'running') tr.classList.add('running');
-            const endTxt = r.end_time? new Date(r.end_time*1000).toLocaleString() : '运行中';
-            const durTxt = r.duration ? Math.round(r.duration)+'s' : (r.end_time? '—':'运行中');
-            tr.innerHTML = `<td class="app-name" title="${escapeHtml(r.app_name||'—')}">${escapeHtml(sliceText(r.app_name||'—', 64))}</td>`+
-                `<td>${new Date(r.start_time*1000).toLocaleString()}</td>`+
-                `<td>${endTxt}</td>`+
-                `<td>${durTxt}</td>`;
-            table.appendChild(tr);
-        });
-        wrapper.appendChild(table);
-        root.appendChild(wrapper);
-        if(records.length > 5){
-            const toggle = document.createElement('button');
-            toggle.className = 'recent-toggle ghost-btn';
-            toggle.textContent = '展开查看更多';
-            toggle.addEventListener('click', ()=>{
-                const expanded = wrapper.classList.toggle('expanded');
-                wrapper.classList.toggle('collapsed', !expanded);
-                toggle.textContent = expanded ? '收起列表' : '展开查看更多';
-            });
-            root.appendChild(toggle);
+
+        const currentVal = heartData && (heartData.current || heartData.current === 0) ? heartData.current : null;
+        const formattedCurrent = currentVal !== null ? formatHeartRateValue(currentVal) : '—';
+        if (currentEl) currentEl.textContent = formattedCurrent || '—';
+        if (stripEl && formattedCurrent) stripEl.textContent = formattedCurrent;
+
+        if (rangeEl) {
+            if (heartData && heartData.window_start && heartData.window_end) {
+                const startTxt = new Date(heartData.window_start).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                const endTxt = new Date(heartData.window_end).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                rangeEl.textContent = `${startTxt} - ${endTxt}`;
+            } else {
+                rangeEl.textContent = '—';
+            }
         }
+
+        if(!root) return;
+        root.innerHTML = '';
+        if(!heartData || !heartData.history || !heartData.history.length){
+            root.innerHTML = '<div class="heart-empty">暂无心率数据</div>';
+            return;
+        }
+
+        const points = heartData.history
+            .map(h => ({...h, ts: Date.parse(h.time)}))
+            .filter(p => !Number.isNaN(p.ts))
+            .sort((a,b)=>a.ts-b.ts);
+        if(!points.length){
+            root.innerHTML = '<div class="heart-empty">暂无心率数据</div>';
+            return;
+        }
+
+        const windowStart = heartData.window_start ? Date.parse(heartData.window_start) : points[0].ts;
+        const windowEnd = heartData.window_end ? Date.parse(heartData.window_end) : points[points.length-1].ts;
+        const span = Math.max(1, windowEnd - windowStart);
+        const values = points.map(p => Number(p.value)).filter(v => !Number.isNaN(v));
+        if(!values.length){
+            root.innerHTML = '<div class="heart-empty">暂无心率数据</div>';
+            return;
+        }
+        const minVal = Math.min(...values);
+        const maxVal = Math.max(...values);
+        const padding = 5;
+        const vMin = Math.max(0, minVal - padding);
+        const vMax = maxVal + padding;
+
+        const width = 600;
+        const height = 260;
+        const leftPad = 50;
+        const bottomPad = 28;
+        const topPad = 16;
+        const chartWidth = width - leftPad - 12;
+        const chartHeight = height - bottomPad - topPad;
+
+        const toX = (ts) => leftPad + ((ts - windowStart) / span) * chartWidth;
+        const toY = (val) => topPad + (1 - ((val - vMin) / Math.max(1, vMax - vMin))) * chartHeight;
+
+        const coords = points.map(p => ({ x: toX(p.ts), y: toY(Number(p.value)), raw: p }));
+        const pathD = coords.map((c,i)=>`${i?'L':'M'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
+        const areaD = `${pathD} L${coords[coords.length-1].x.toFixed(2)},${height-bottomPad} L${coords[0].x.toFixed(2)},${height-bottomPad} Z`;
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('class', 'heart-chart-svg');
+        svg.setAttribute('preserveAspectRatio', 'none');
+
+        // Axes labels
+        const axisStart = document.createElementNS('http://www.w3.org/2000/svg','text');
+        axisStart.setAttribute('x', leftPad);
+        axisStart.setAttribute('y', height - 6);
+        axisStart.setAttribute('class', 'heart-axis');
+        axisStart.textContent = new Date(windowStart).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        svg.appendChild(axisStart);
+
+        const axisEnd = document.createElementNS('http://www.w3.org/2000/svg','text');
+        axisEnd.setAttribute('x', width - 6);
+        axisEnd.setAttribute('y', height - 6);
+        axisEnd.setAttribute('text-anchor', 'end');
+        axisEnd.setAttribute('class', 'heart-axis');
+        axisEnd.textContent = new Date(windowEnd).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        svg.appendChild(axisEnd);
+
+        const axisMax = document.createElementNS('http://www.w3.org/2000/svg','text');
+        axisMax.setAttribute('x', 8);
+        axisMax.setAttribute('y', toY(vMax).toFixed(2));
+        axisMax.setAttribute('class', 'heart-axis');
+        axisMax.textContent = `${Math.round(vMax)} bpm`;
+        svg.appendChild(axisMax);
+
+        const axisMin = document.createElementNS('http://www.w3.org/2000/svg','text');
+        axisMin.setAttribute('x', 8);
+        axisMin.setAttribute('y', toY(vMin).toFixed(2));
+        axisMin.setAttribute('class', 'heart-axis');
+        axisMin.textContent = `${Math.max(0, Math.round(vMin))} bpm`;
+        svg.appendChild(axisMin);
+
+        const area = document.createElementNS('http://www.w3.org/2000/svg','path');
+        area.setAttribute('d', areaD);
+        area.setAttribute('class', 'heart-area');
+        svg.appendChild(area);
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+        path.setAttribute('d', pathD);
+        path.setAttribute('class', 'heart-line');
+        svg.appendChild(path);
+
+        coords.forEach(pt => {
+            const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            dot.setAttribute('cx', pt.x);
+            dot.setAttribute('cy', pt.y);
+            dot.setAttribute('r', 3.2);
+            dot.setAttribute('class', 'heart-dot');
+            svg.appendChild(dot);
+        });
+
+        root.appendChild(svg);
     }
 
-    // Render dashboard aggregate panels, donut and hourly chart
-    function renderDashboardAggregate(details, device, deviceId){
+    // Render dashboard aggregate panels and donut chart
+    function renderDashboardAggregate(details, device, deviceId, heartDevice){
         if(!details) return;
         // top stats
         const appCount = Object.keys(details.totals_seconds||{}).length || 0;
@@ -511,13 +599,7 @@ async function updateElement(data) {
             drawDonut(donutRoot, donutData.map((d,i)=>({name:d.name, seconds:d.seconds, color: generateColors(donutData.length)[i]})));
         }
 
-        // hourly chart
-        const hourlyRoot = document.getElementById('hourly-root');
-        if(hourlyRoot){
-            hourlyRoot.innerHTML = '';
-            hourlyRoot.dataset.hourlySeconds = JSON.stringify(details.hourly_seconds || {});
-            renderHistory(details.hourly || [], hourlyRoot);
-        }
+        renderHeartRateChart(details.heart_rate || null, heartDevice !== false);
 
         // progress list
         const pl = document.getElementById('progress-list');
@@ -549,24 +631,6 @@ async function updateElement(data) {
             }
         }
 
-        // recent table (if provided)
-        const recentRoot = document.getElementById('recent-table');
-        if(recentRoot){
-            recentRoot.innerHTML = '<div class="loading">加载最近记录...</div>';
-            (async()=>{
-                const activeId = deviceId || window.selectedDeviceId || null;
-                const deviceQuery = activeId ? `id=${encodeURIComponent(activeId)}&` : '';
-                try{
-                    const resp = await fetch(`/recent?${deviceQuery}limit=10&hours=48`);
-                    const jd = await resp.json();
-                    if(jd.success){
-                        renderRecentTable(recentRoot, jd.records || []);
-                        return;
-                    }
-                }catch(e){ /* fallback */ }
-                renderRecentTable(recentRoot, (details.recent||[]).slice(0,10));
-            })();
-        }
     }
     // 更新最后更新时间
     const timenow = getFormattedDate(new Date());

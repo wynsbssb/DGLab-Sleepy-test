@@ -445,13 +445,16 @@ def device_set():
                 message='missing param or wrong param type'
             ), 400
     devices: dict = d.dget('device_status')
+    heart_rate_val = d._extract_heart_rate((app_name_only if 'app_name_only' in locals() else None) or app_name)
     if (not device_using) and env.status.not_using:
         # 如未在使用且锁定了提示，则替换
         app_name = env.status.not_using
     devices[device_id] = {
         'show_name': device_show_name,
         'using': device_using,
-        'app_name': app_name
+        'app_name': app_name,
+        'heart_rate': (int(heart_rate_val) if heart_rate_val is not None else None),
+        'heart_updated_at': datetime.now(pytz.timezone(env.main.timezone)).isoformat()
     }
 
     # 记录应用上报事件（仅保存事件点），支持可选字段 app_pkg / app_name_only
@@ -603,13 +606,9 @@ def events():
 def recent_records():
     '''
     返回最近的应用使用记录（按设备拆分）
-    - GET params: id=<device_id>&limit=<n>&hours=<m>
+    - GET params: id=<device_id>&hours=<m>
     '''
     device_id = escape(flask.request.args.get('id', ''))
-    try:
-        limit = int(flask.request.args.get('limit', '10'))
-    except Exception:
-        limit = 10
     try:
         hours = int(flask.request.args.get('hours', '24'))
     except Exception:
@@ -620,7 +619,7 @@ def recent_records():
             message='device id is required'
         ), 400
     try:
-        records = d.get_recent_records(device_id=device_id, hours=hours, limit=limit)
+        records = d.get_recent_records(device_id=device_id, hours=hours)
     except Exception as e:
         return u.reterr(
             code='exception',
@@ -629,7 +628,6 @@ def recent_records():
     return u.format_dict({
         'success': True,
         'hours': hours,
-        'limit': limit,
         'records': records
     }), 200
 

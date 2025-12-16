@@ -227,11 +227,11 @@ Authorization: Bearer MySecretCannotGuess
 
 > `/recent`
 
-按设备获取最近的应用使用记录，默认返回最近 24 小时内最多 10 条记录。
+按设备获取最近的应用使用记录，默认返回最近 24 小时内的全部记录。
 
 * Method: GET
 * 无需鉴权
-* Params: `id` *(必填，设备 ID)*，`hours` *(可选，默认 24)*，`limit` *(可选，默认 10，上限取决于数据量)*
+* Params: `id` *(必填，设备 ID)*，`hours` *(可选，默认 24)*
 
 #### Response
 
@@ -240,7 +240,6 @@ Authorization: Bearer MySecretCannotGuess
 {
     "success": true,
     "hours": 24,
-    "limit": 10,
     "records": [
         {
             "app_name": "哔哩哔哩",
