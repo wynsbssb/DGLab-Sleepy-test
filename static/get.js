@@ -557,7 +557,7 @@ async function updateElement(data) {
                 const activeId = deviceId || window.selectedDeviceId || null;
                 const deviceQuery = activeId ? `id=${encodeURIComponent(activeId)}&` : '';
                 try{
-                    const resp = await fetch(`/recent?${deviceQuery}limit=10&hours=48`);
+                    const resp = await fetch(`/recent?${deviceQuery}limit=9999999&hours=48`);
                     const jd = await resp.json();
                     if(jd.success){
                         renderRecentTable(recentRoot, jd.records || []);
