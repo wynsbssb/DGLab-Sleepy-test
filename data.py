@@ -1001,16 +1001,10 @@ class data:
 
         for device_id, info in device_status.items():
             updated_at = info.get('updated_at')
-            heart_updated_at = info.get('heart_updated_at')
-            timestamps = []
-            for ts in [updated_at, heart_updated_at]:
-                ts_val = self._safe_parse_ts(ts) if ts else None
-                if ts_val:
-                    timestamps.append(ts_val)
-            if not timestamps:
+            last_seen_ts = self._safe_parse_ts(updated_at) if updated_at else None
+            if not last_seen_ts:
                 continue
 
-            last_seen_ts = max(timestamps)
             last_seen = datetime.fromtimestamp(last_seen_ts, tz)
 
             if last_seen < cutoff:
