@@ -146,12 +146,26 @@
                     </div>
                     <div class="charts-bottom">
                         <div class="chart-card" id="progress-list-card"><h4>详细使用数据</h4><div id="progress-list">加载中...</div></div>
+                        <div class="chart-card" id="recent-card">
+                            <div class="history-header">
+                                <div>
+                                    <p class="eyebrow">最近使用</p>
+                                    <h4>最近使用列表</h4>
+                                </div>
+                            </div>
+                            <div id="recent-table">加载中...</div>
+                        </div>
                         <div class="chart-card heart-card" id="heart-card">
                             <div class="heart-card-header">
                                 <div>
                                     <p class="eyebrow">心率监测</p>
                                     <h4>心率图表</h4>
                                     <div class="muted" id="heart-range">—</div>
+                                </div>
+                                <div class="heart-window" id="heart-window-toggle" aria-label="心率时间范围">
+                                    <button class="heart-range-btn" data-hours="1" type="button">近1小时</button>
+                                    <button class="heart-range-btn" data-hours="6" type="button">近6小时</button>
+                                    <button class="heart-range-btn" data-hours="24" type="button">近24小时</button>
                                 </div>
                                 <div class="heart-current">
                                     <span class="muted">当前心率</span>
