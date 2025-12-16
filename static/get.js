@@ -319,6 +319,7 @@ async function updateElement(data) {
 
     const firstEntry = devicesEntries.length ? devicesEntries[0] : null;
     const chosenId = (window.selectedDeviceId && devicesMap[window.selectedDeviceId]) ? window.selectedDeviceId : (firstEntry ? firstEntry[0] : null);
+    applyHeartWindowButtons();
     if (chosenId) {
         await handleDeviceSelection(chosenId);
     }
@@ -607,6 +608,8 @@ async function updateElement(data) {
         const coords = sampled.map(p => ({ x: toX(p.ts), y: toY(Number(p.value)), raw: p }));
         const pathD = coords.map((c,i)=>`${i?'L':'M'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
 
+        const wrap = document.createElement('div');
+        wrap.className = 'heart-chart-wrap';
         const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('class', 'heart-chart-svg');
