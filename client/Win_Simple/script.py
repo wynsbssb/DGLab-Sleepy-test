@@ -304,7 +304,7 @@ def main():
             monitor.update_state()
             sleep(config.check_interval)
         except KeyboardInterrupt:
-            monitor.send_state(False, "主人要抛弃人家了吗~呜")
+            monitor.send_state(False, "离线了喵")
             logging.info("主人要抛弃人家了吗~呜")
             sys.exit(0)
         except Exception as e:
