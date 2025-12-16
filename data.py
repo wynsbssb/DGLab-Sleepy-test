@@ -1,6 +1,7 @@
 # coding: utf-8
 
 import os
+import re
 try:
     import pytz
 except Exception:
@@ -118,6 +119,119 @@ class data:
         except KeyError:
             gotdata = default
         return gotdata
+
+    def _safe_parse_ts(self, value):
+        try:
+            dt = datetime.fromisoformat(value)
+            return dt.timestamp()
+        except Exception:
+            return None
+
+    def _extract_heart_rate(self, text: str):
+        if not text:
+            return None
+        m = re.search(r'(-?\d+(?:\.\d+)?)\s*bpm$', str(text).strip(), re.IGNORECASE)
+        if not m:
+            return None
+        try:
+            return float(m.group(1))
+        except Exception:
+            return None
+
+    # --- Time helpers
+
+    def _calc_time_window(self, hours: int = 24):
+        '''
+        计算统计窗口，针对 24 小时窗口使用服务器当日 00:00-24:00 的时间范围。
+        返回 (start_dt, end_dt, now_dt)
+        '''
+        try:
+            tz = pytz.timezone(env.main.timezone)
+        except Exception:
+            tz = None
+
+        now_dt = datetime.now(tz) if tz else datetime.utcnow()
+
+        if hours == 24:
+            start_dt = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_dt = start_dt + timedelta(hours=24)
+        else:
+            start_dt = now_dt - timedelta(hours=hours)
+            end_dt = now_dt
+
+        # 防止异常情况导致 end 早于 start
+        if end_dt < start_dt:
+            end_dt = start_dt
+
+        return start_dt, end_dt, now_dt
+
+    # --- Heart rate helpers
+
+    def record_heart_rate(self, device_id: str, heart_rate: float, when: datetime = None):
+        '''记录心率数据，默认保留最近 48 小时'''
+        try:
+            tz = pytz.timezone(env.main.timezone)
+        except Exception:
+            tz = None
+        now_dt = when or (datetime.now(tz) if tz else datetime.utcnow())
+
+        hist = self.data.setdefault('heart_history', {})
+        lst = hist.setdefault(device_id, [])
+        lst.append({'time': now_dt.isoformat(), 'value': float(heart_rate)})
+
+        cutoff = (now_dt - timedelta(hours=48)).timestamp()
+        filtered = []
+        for e in lst:
+            ts = self._safe_parse_ts(e.get('time'))
+            if ts is None:
+                continue
+            if ts >= cutoff:
+                filtered.append(e)
+        hist[device_id] = filtered
+        try:
+            self.save()
+        except Exception as e:
+            u.warning(f'[record_heart_rate] failed to save: {e}')
+
+    def get_heart_rate_details(self, device_id: str, hours: int = 24) -> dict:
+        start_dt, end_dt, now_dt = self._calc_time_window(hours)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
+
+        hist = self.data.get('heart_history', {}).get(device_id, [])
+        samples = []
+        latest = None
+        for e in hist:
+            ts = self._safe_parse_ts(e.get('time'))
+            if ts is None:
+                continue
+            if ts < start_ts or ts > end_ts:
+                continue
+            try:
+                val = float(e.get('value'))
+            except Exception:
+                continue
+            samples.append({'time': ts, 'value': val})
+            if latest is None or ts > latest['time']:
+                latest = {'time': ts, 'value': val}
+
+        samples.sort(key=lambda x: x['time'])
+        try:
+            tz = pytz.timezone(env.main.timezone)
+        except Exception:
+            tz = None
+
+        def format_ts(ts):
+            if tz:
+                return datetime.fromtimestamp(ts, tz).isoformat()
+            return datetime.fromtimestamp(ts).isoformat()
+
+        return {
+            'current': (int(latest['value']) if latest else None),
+            'history': [{'time': format_ts(s['time']), 'value': s['value']} for s in samples],
+            'window_start': format_ts(start_ts),
+            'window_end': format_ts(end_ts)
+        }
 
     # --- Metrics
 
@@ -257,6 +371,10 @@ class data:
         lst = ah.setdefault(device_id, [])
         lst.append({'time': now, 'app_name': app_name or '', 'app_name_only': clean_name, 'app_pkg': app_pkg or '', 'using': bool(using)})
 
+        heart_val = self._extract_heart_rate(clean_name or app_name)
+        if heart_val is not None:
+            self.record_heart_rate(device_id, heart_val, when=datetime.fromisoformat(now))
+
         # 立即持久化，避免进程异常退出导致事件丢失
         try:
             self.save()
@@ -286,13 +404,9 @@ class data:
         聚合返回过去 `hours` 小时内每小时的 app 事件计数和排名。
         返回格式: [{ 'hour': 'YYYY-MM-DD HH:00', 'counts': {app: n, ...}, 'top_app': app, 'top_count': n }, ...]
         '''
-        try:
-            now = datetime.now(pytz.timezone(env.main.timezone))
-        except Exception:
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
-
-        start_ts = (now.timestamp() - hours * 3600)
+        start_dt, end_dt, now = self._calc_time_window(hours)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
         raw = self.data.get('app_history', {}).get(device_id, [])
         buckets = {}
         for e in raw:
@@ -301,7 +415,7 @@ class data:
             except Exception:
                 continue
             ts = t.timestamp()
-            if ts < start_ts:
+            if ts < start_ts or ts > end_ts:
                 continue
             # bucket by hour start
             hour_dt = t.replace(minute=0, second=0, microsecond=0)
@@ -312,8 +426,9 @@ class data:
 
         # Build result array from start->now (hours entries)
         res = []
-        for i in range(hours, 0, -1):
-            hour_dt = (now - timedelta(hours=i-1)).replace(minute=0, second=0, microsecond=0)
+        cur = start_dt
+        while cur < end_dt:
+            hour_dt = cur.replace(minute=0, second=0, microsecond=0)
             key = hour_dt.strftime('%Y-%m-%d %H:00')
             counts = buckets.get(key, {})
             if counts:
@@ -324,18 +439,16 @@ class data:
                 top_app = None
                 top_count = 0
             res.append({'hour': key, 'counts': counts, 'top_app': top_app, 'top_count': top_count})
+            cur = hour_dt + timedelta(hours=1)
         return res
 
     def get_app_usage_details(self, device_id: str, hours: int = 24) -> dict:
         '''
         返回更详细的使用统计：按小时桶的聚合（同 get_app_usage），以及总用时统计、最常用应用、当前运行应用和当前运行时长。
         '''
-        try:
-            now = datetime.now(pytz.timezone(env.main.timezone))
-        except Exception:
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
-        start_ts = now.timestamp() - hours * 3600
+        start_dt, end_dt, now = self._calc_time_window(hours)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
 
         raw = self.data.get('app_history', {}).get(device_id, [])
         # sort by time ascending
@@ -352,14 +465,14 @@ class data:
         # iterate, create sessions from event[i] -> event[i+1]
         for i, ev in enumerate(events):
             start = ev['ts']
-            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            end = events[i+1]['ts'] if i+1 < len(events) else min(now.timestamp(), end_ts)
             if end <= start:
                 continue
             # clip to window
-            if end < start_ts:
+            if end < start_ts or start > end_ts:
                 continue
             seg_start = max(start, start_ts)
-            seg_end = end
+            seg_end = min(end, end_ts)
             duration = seg_end - seg_start
             if ev['using']:
                 totals[ev['app']] = totals.get(ev['app'], 0) + duration
@@ -411,12 +524,9 @@ class data:
         base = self.get_app_usage_details(device_id, hours)
 
         # 重新计算更详细的 per-app 数据
-        try:
-            now = datetime.now(pytz.timezone(env.main.timezone))
-        except Exception:
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
-        start_ts = now.timestamp() - hours * 3600
+        start_dt, end_dt, now = self._calc_time_window(hours)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
 
         raw = self.data.get('app_history', {}).get(device_id, [])
         events = []
@@ -438,7 +548,7 @@ class data:
         for i, ev in enumerate(events):
             app = ev['app']
             start = ev['ts']
-            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            end = events[i+1]['ts'] if i+1 < len(events) else min(now.timestamp(), end_ts)
             if end <= start:
                 continue
             # update last seen
@@ -473,13 +583,13 @@ class data:
         # iterate sessions again and split into hour buckets
         for i, ev in enumerate(events):
             start = ev['ts']
-            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            end = events[i+1]['ts'] if i+1 < len(events) else min(now.timestamp(), end_ts)
             if end <= start:
                 continue
             if not ev['using']:
                 continue
             seg_start = max(start, start_ts)
-            seg_end = end
+            seg_end = min(end, end_ts)
             # split into hours
             cur = seg_start
             while cur < seg_end:
@@ -508,12 +618,12 @@ class data:
             if not ev['using']:
                 continue
             start = ev['ts']
-            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            end = events[i+1]['ts'] if i+1 < len(events) else min(now.timestamp(), end_ts)
             # clip to window
-            if end <= start or end < start_ts:
+            if end <= start or end < start_ts or start > end_ts:
                 continue
             seg_start = max(start, start_ts)
-            seg_end = end
+            seg_end = min(end, end_ts)
             duration = int(seg_end - seg_start)
             running = (i+1 >= len(events) and ev['using'] and (end >= now.timestamp() - 1))
             recent.append({
@@ -527,6 +637,7 @@ class data:
         # sort and trim
         recent.sort(key=lambda x: x['start_time'], reverse=True)
         base['recent'] = recent[:200]
+        base['heart_rate'] = self.get_heart_rate_details(device_id, hours)
         return base
 
     def get_app_hour_breakdown(self, device_id: str, hour_key: str, hours: int = 24) -> dict:
@@ -609,13 +720,12 @@ class data:
             }
         return res
 
-    def get_recent_records(self, device_id: str, hours: int = 24, limit: int = 10) -> list:
+    def get_recent_records(self, device_id: str, hours: int = 24) -> list:
         """
-        返回指定设备最近的应用使用记录，并限制返回数量。
+        返回指定设备最近的应用使用记录。
 
         :param device_id: 设备 ID（必填）
         :param hours: 统计窗口，默认最近 24 小时
-        :param limit: 最多返回的记录条数，默认 10
         """
         if not device_id:
             raise ValueError('device_id required')
@@ -623,13 +733,7 @@ class data:
         # 复用单设备的拆分逻辑，避免聚合后混淆设备来源
         history = self.get_app_usage_details_v2(device_id, hours)
         recent = history.get('recent', []) if isinstance(history, dict) else []
-        if not isinstance(recent, list):
-            return []
-        try:
-            lim = max(1, int(limit))
-        except Exception:
-            lim = 10
-        return recent[:lim]
+        return recent if isinstance(recent, list) else []
 
     def get_app_usage_aggregate(self, hours: int = 24) -> dict:
         """
@@ -642,12 +746,9 @@ class data:
                 all_raw.append(e)
 
         # temporarily store and sort events similar to get_app_usage_details
-        try:
-            now = datetime.now(pytz.timezone(env.main.timezone))
-        except Exception:
-            from datetime import timezone
-            now = datetime.now(timezone.utc)
-        start_ts = now.timestamp() - hours * 3600
+        start_dt, end_dt, now = self._calc_time_window(hours)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
 
         events = []
         for e in all_raw:
@@ -663,13 +764,13 @@ class data:
         last_seen = {}
         for i, ev in enumerate(events):
             start = ev['ts']
-            end = events[i+1]['ts'] if i+1 < len(events) else now.timestamp()
+            end = events[i+1]['ts'] if i+1 < len(events) else min(now.timestamp(), end_ts)
             if end <= start:
                 continue
-            if end < start_ts:
+            if end < start_ts or start > end_ts:
                 continue
             seg_start = max(start, start_ts)
-            seg_end = end
+            seg_end = min(end, end_ts)
             duration = seg_end - seg_start
             if ev['using']:
                 totals[ev['app']] = totals.get(ev['app'], 0) + duration
