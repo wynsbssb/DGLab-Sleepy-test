@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 try:
     import pytz
 except Exception:
@@ -79,7 +80,10 @@ class data:
                     self.data = self.preload_data
                     self.save()
                 with open(u.get_path('data.json'), 'r', encoding='utf-8') as file:
-                    Data = json.load(file)
+                    content = file.read()
+                    if not content.strip():
+                        raise ValueError('data.json is empty, possible interrupted write')
+                    Data = json.loads(content)
                     DATA: dict = {**preload, **Data}
                     if ret:
                         return DATA
@@ -91,6 +95,24 @@ class data:
                 if attempts > 0:
                     u.warning(f'Load data error: {e}, retrying ({attempts} attempts left)')
                 else:
+                    backup_path = u.get_path('data.json.bak')
+                    if os.path.exists(backup_path):
+                        try:
+                            with open(backup_path, 'r', encoding='utf-8') as file:
+                                backup_content = file.read()
+                                if not backup_content.strip():
+                                    raise ValueError('backup file is empty')
+                                Data = json.loads(backup_content)
+                                DATA = {**preload, **Data}
+                                if ret:
+                                    return DATA
+                                else:
+                                    self.data = DATA
+                                    # 用备份文件修复损坏的 data.json
+                                    self.save()
+                                break
+                        except Exception as backup_error:
+                            u.error(f'Load data error: {e}, fallback backup failed: {backup_error}')
                     u.error(f'Load data error: {e}, reached max retry count!')
                     raise
 
@@ -99,10 +121,31 @@ class data:
         保存配置
         '''
         try:
-            with open(u.get_path('data.json'), 'w', encoding='utf-8') as file:
+            data_path = u.get_path('data.json')
+            tmp_path = f"{data_path}.tmp"
+            backup_path = f"{data_path}.bak"
+
+            # 生成备份，避免写入被中断导致文件为空
+            if os.path.exists(data_path):
+                try:
+                    shutil.copy2(data_path, backup_path)
+                except Exception as e:
+                    u.warning(f'Failed to backup data.json: {e}')
+
+            with open(tmp_path, 'w', encoding='utf-8') as file:
                 json.dump(self.data, file, indent=4, ensure_ascii=False)
+                file.flush()
+                os.fsync(file.fileno())
+
+            os.replace(tmp_path, data_path)
         except Exception as e:
             u.error(f'Failed to save data.json: {e}')
+            # 确保临时文件不会残留
+            try:
+                if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
 
     def dset(self, name, value):
         '''
@@ -957,13 +1000,12 @@ class data:
         changed = False
 
         for device_id, info in device_status.items():
-            updated_at = info.get('updated_at') or info.get('heart_updated_at')
-            if not updated_at:
+            updated_at = info.get('updated_at')
+            last_seen_ts = self._safe_parse_ts(updated_at) if updated_at else None
+            if not last_seen_ts:
                 continue
-            try:
-                last_seen = datetime.fromisoformat(updated_at)
-            except Exception:
-                continue
+
+            last_seen = datetime.fromtimestamp(last_seen_ts, tz)
 
             if last_seen < cutoff:
                 if not info.get('offline'):
