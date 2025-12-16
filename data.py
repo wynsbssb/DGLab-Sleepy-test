@@ -969,7 +969,7 @@ class data:
                 if not info.get('offline'):
                     info['offline'] = True
                     info['using'] = False
-                    info['app_name'] = '离线'
+                    info['app_name'] = '超时自动离线'
                     changed = True
             elif info.get('offline'):
                 info['offline'] = False

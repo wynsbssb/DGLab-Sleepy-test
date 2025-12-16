@@ -460,12 +460,6 @@ async function updateElement(data) {
         if (!root) return;
         const wasExpanded = root.dataset.expanded === 'true';
         root.innerHTML = '';
-
-        if (!allow) {
-            root.innerHTML = '<div class="muted">心率设备不展示最近应用</div>';
-            return;
-        }
-
         if (!records || !records.length) {
             root.innerHTML = '<div class="muted">暂无最近使用记录</div>';
             return;
