@@ -104,36 +104,26 @@
                     </div>
                     <aside class="devices-list" id="devices-list" role="list" aria-label="设备列表">
                         {%- for id, dev in devices.items() %}
-                        {% set status_class = 'status-running' if dev.using else ('status-standby' if dev.app_name and '待机' in dev.app_name else 'status-stopped') %}
-                        {% set status_label = '运行中' if dev.using else ('待机' if dev.app_name and '待机' in dev.app_name else '已停止') %}
+                        {% set status_class = 'status-offline' if dev.offline else ('status-running' if dev.using else ('status-standby' if dev.app_name and '待机' in dev.app_name else 'status-stopped')) %}
+                        {% set status_label = '已离线' if dev.offline else ('运行中' if dev.using else ('待机' if dev.app_name and '待机' in dev.app_name else '已停止')) %}
                         {% set battery_text = dev.battery_percent if dev.battery_percent is not none else '—%' %}
                         {% set most_used = dev.top_app if dev.top_app else '暂无数据' %}
                         {% set current_app = dev.app_name if dev.app_name else '暂无运行应用' %}
                         <div class="device-box {{ status_class }}" data-id="{{ id }}" role="listitem" tabindex="0">
                             <div class="device-box-head">
-                                <div class="device-title">{{ dev.show_name }}</div>
+                                <div class="device-headings">
+                                    <div class="device-title">{{ dev.show_name }}</div>
+                                    <div class="device-id">ID: {{ id }}</div>
+                                </div>
                                 <span class="status-chip {{ status_class }}">{{ status_label }}</span>
                             </div>
-                            <div class="device-meta">
-                                <span class="battery-inline">
-                                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2" ry="2" stroke="currentColor" stroke-width="1.6" fill="none"></rect><rect x="20" y="10" width="2" height="4" rx="1" fill="currentColor"></rect><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.18"></rect></svg>
-                                    {{ battery_text }}{% if '%' not in battery_text|string %}%{% endif %}
-                                </span>
-                                <span class="muted-id">ID: {{ id }}</span>
+                            <div class="device-body">
+                                <div class="device-body-label">当前应用</div>
+                                <div class="device-body-value" title="{{ current_app }}">{{ current_app }}</div>
                             </div>
-                            <div class="device-app-grid">
-                                <div class="device-app-pill" title="{{ most_used }}">
-                                    <div class="pill-top">
-                                        <span class="pill-label">常用应用</span>
-                                        <span class="pill-value">{{ most_used }}</span>
-                                    </div>
-                                </div>
-                                <div class="device-app-pill" title="{{ current_app }}">
-                                    <div class="pill-top">
-                                        <span class="pill-label">当前应用</span>
-                                        <span class="pill-value">{{ current_app }}</span>
-                                    </div>
-                                </div>
+                            <div class="device-footer">
+                                <div class="footer-item"><span class="footer-label">电量</span><span class="footer-value">{{ battery_text }}{% if '%' not in battery_text|string %}%{% endif %}</span></div>
+                                <div class="footer-item"><span class="footer-label">常用</span><span class="footer-value" title="{{ most_used }}">{{ most_used }}</span></div>
                             </div>
                         </div>
                         {%- endfor %}
@@ -160,7 +150,15 @@
                                 <div>
                                     <p class="eyebrow">心率监测</p>
                                     <h4>心率图表</h4>
-                                    <div class="muted" id="heart-range">—</div>
+                                    <div class="heart-range-row">
+                                        <div class="muted" id="heart-range">—</div>
+                                        <div class="heart-range-controls" role="group" aria-label="心率时间范围">
+                                            <button class="ghost-btn heart-range-btn" data-hours="6">6h</button>
+                                            <button class="ghost-btn heart-range-btn" data-hours="12">12h</button>
+                                            <button class="ghost-btn heart-range-btn active" data-hours="24">24h</button>
+                                            <button class="ghost-btn heart-range-btn" data-hours="48">48h</button>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="heart-current">
                                     <span class="muted">当前心率</span>

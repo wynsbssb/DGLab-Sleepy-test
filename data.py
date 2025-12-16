@@ -940,6 +940,44 @@ class data:
             elif not trigged_by_timer:
                 u.debug(f'[check_device_status] 当前状态为 {current_status}, 不适用自动切换.')
 
+    def mark_stale_devices_offline(self, threshold_hours: int = 2):
+        """
+        将超过指定时间未上报的设备标记为离线。
+
+        :param threshold_hours: 超过多少小时未上报视为离线
+        """
+        try:
+            tz = pytz.timezone(env.main.timezone)
+        except Exception:
+            tz = None
+
+        now_dt = datetime.now(tz) if tz else datetime.utcnow()
+        cutoff = now_dt - timedelta(hours=threshold_hours)
+        device_status: dict = self.data.get('device_status', {})
+        changed = False
+
+        for device_id, info in device_status.items():
+            updated_at = info.get('updated_at') or info.get('heart_updated_at')
+            if not updated_at:
+                continue
+            try:
+                last_seen = datetime.fromisoformat(updated_at)
+            except Exception:
+                continue
+
+            if last_seen < cutoff:
+                if not info.get('offline'):
+                    info['offline'] = True
+                    info['using'] = False
+                    info['app_name'] = '离线'
+                    changed = True
+            elif info.get('offline'):
+                info['offline'] = False
+                changed = True
+
+        if changed:
+            self.data['last_updated'] = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+
     def timer_check(self):
         '''
         定时检查更改并自动保存
@@ -950,6 +988,7 @@ class data:
         while True:
             sleep(self.data_check_interval)
             try:
+                self.mark_stale_devices_offline()  # 标记长时间未上报的设备
                 self.check_metrics_time()  # 检测是否跨日
                 self.check_device_status(trigged_by_timer=True)  # 检测设备状态并更新 status
                 file_data = self.load(ret=True)
