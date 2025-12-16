@@ -6,6 +6,7 @@ const normalizedPath = currentPath.endsWith('/')
     : currentPath.replace(/[^/]+$/, '/');
 const baseUrl = `${currentUrl.origin}${normalizedPath}`;
 const HEART_DEVICE_IDS = new Set(['mi10band', 'heart']);
+let heartWindowHours = 24;
 
 // sleep (只能加 await 在 async 函数中使用)
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
@@ -230,7 +231,7 @@ async function updateElement(data) {
         markActiveCard();
         updateStatusStrip(null, devicesMap[id], heartDevice);
         try {
-            const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=24`);
+            const resp = await fetch(`/device/history?id=${encodeURIComponent(id)}&hours=${encodeURIComponent(heartWindowHours)}`);
             const jd = await resp.json();
             if (jd.success && jd.history) {
                 renderDashboardAggregate(jd.history, devicesMap[id], id, heartDevice);
@@ -248,6 +249,23 @@ async function updateElement(data) {
             updateStatusStrip(null, devicesMap[id], heartDevice);
         }
     }
+
+    const applyHeartWindowButtons = () => {
+        const toggleWrap = document.getElementById('heart-window-toggle');
+        if (!toggleWrap) return;
+        toggleWrap.querySelectorAll('button.heart-range-btn').forEach(btn => {
+            const hours = Number(btn.dataset.hours);
+            btn.classList.toggle('active', hours === Number(heartWindowHours));
+            btn.onclick = () => {
+                if (Number(heartWindowHours) === hours) return;
+                heartWindowHours = hours;
+                applyHeartWindowButtons();
+                if (window.selectedDeviceId) {
+                    handleDeviceSelection(window.selectedDeviceId);
+                }
+            };
+        });
+    };
 
     if (devicesListEl) {
         devicesListEl.innerHTML = '';
@@ -322,6 +340,7 @@ async function updateElement(data) {
 
     const firstEntry = devicesEntries.length ? devicesEntries[0] : null;
     const chosenId = (window.selectedDeviceId && devicesMap[window.selectedDeviceId]) ? window.selectedDeviceId : (firstEntry ? firstEntry[0] : null);
+    applyHeartWindowButtons();
     if (chosenId) {
         await handleDeviceSelection(chosenId);
     }
@@ -601,6 +620,8 @@ async function updateElement(data) {
         const coords = sampled.map(p => ({ x: toX(p.ts), y: toY(Number(p.value)), raw: p }));
         const pathD = coords.map((c,i)=>`${i?'L':'M'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
 
+        const wrap = document.createElement('div');
+        wrap.className = 'heart-chart-wrap';
         const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('class', 'heart-chart-svg');
@@ -663,7 +684,77 @@ async function updateElement(data) {
         path.setAttribute('class', 'heart-line');
         svg.appendChild(path);
 
-        root.appendChild(svg);
+        const markerLine = document.createElementNS('http://www.w3.org/2000/svg','line');
+        markerLine.setAttribute('class', 'heart-marker-line');
+        markerLine.setAttribute('y1', topPad);
+        markerLine.setAttribute('y2', height - bottomPad);
+        markerLine.style.display = 'none';
+        svg.appendChild(markerLine);
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'heart-tooltip hidden';
+        wrap.appendChild(tooltip);
+
+        let activeDot = null;
+        const showTooltip = (coord) => {
+            const rect = svg.getBoundingClientRect();
+            const scaleX = rect.width / width;
+            const scaleY = rect.height / height;
+            const timeText = new Date(coord.raw.ts).toLocaleString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const valueText = formatHeartRateValue(coord.raw.value) || `${coord.raw.value} bpm`;
+            tooltip.innerHTML = `<div class="title">${timeText}</div><div>${valueText}</div>`;
+            const screenX = coord.x * scaleX;
+            const screenY = coord.y * scaleY;
+            const clampedX = Math.min(rect.width - 30, Math.max(30, screenX));
+            tooltip.style.left = `${clampedX}px`;
+            tooltip.style.top = `${screenY}px`;
+            tooltip.classList.remove('hidden');
+            markerLine.setAttribute('x1', coord.x);
+            markerLine.setAttribute('x2', coord.x);
+            markerLine.style.display = 'block';
+            if (activeDot) activeDot.classList.remove('active');
+            if (coord.dot) {
+                coord.dot.classList.add('active');
+                activeDot = coord.dot;
+            }
+        };
+
+        const hideTooltip = () => {
+            tooltip.classList.add('hidden');
+            markerLine.style.display = 'none';
+            if (activeDot) activeDot.classList.remove('active');
+            activeDot = null;
+        };
+
+        coords.forEach(c => {
+            const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            dot.setAttribute('cx', c.x);
+            dot.setAttribute('cy', c.y);
+            dot.setAttribute('r', 4);
+            dot.setAttribute('class', 'heart-dot');
+            c.dot = dot;
+            dot.addEventListener('mouseenter', () => showTooltip(c));
+            dot.addEventListener('click', () => showTooltip(c));
+            svg.appendChild(dot);
+        });
+
+        const hoverHandler = (evt) => {
+            const rect = svg.getBoundingClientRect();
+            const x = evt.clientX - rect.left;
+            let nearest = null;
+            coords.forEach(c => {
+                const dist = Math.abs(c.x - x);
+                if (!nearest || dist < nearest.dist) {
+                    nearest = { dist, coord: c };
+                }
+            });
+            if (nearest) showTooltip(nearest.coord);
+        };
+        svg.addEventListener('mousemove', hoverHandler);
+        svg.addEventListener('mouseleave', hideTooltip);
+
+        wrap.appendChild(svg);
+        root.appendChild(wrap);
     }
 
     // Render dashboard aggregate panels and donut chart
