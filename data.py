@@ -388,6 +388,12 @@ class data:
         :param app_pkg: (可选) 应用包名或标识
         :param app_name_only: (可选) 清洗后的应用名（优先使用）
         '''
+        privacy_placeholder = '隐私模式已隐藏'
+        if self.data.get('private_mode'):
+            # 隐私模式下不记录真实的最近使用/应用时长，使用占位符填补时间线
+            app_name = privacy_placeholder
+            app_name_only = privacy_placeholder
+            app_pkg = ''
         try:
             now = datetime.now(pytz.timezone(env.main.timezone)).isoformat()
         except Exception:
