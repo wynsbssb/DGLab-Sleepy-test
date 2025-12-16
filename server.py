@@ -188,7 +188,8 @@ def index():
     # 准备设备的轻量视图（用于服务端首屏渲染）
     import re
     devices = {}
-    for _id, dv in d.data.get('device', {}).items():
+    devices_source = d.data.get('device_status') or d.data.get('device', {})
+    for _id, dv in devices_source.items():
         app_name = dv.get('app_name') or ''
         # parse battery percent if present
         battery_pct = None
@@ -223,6 +224,7 @@ def index():
         devices[_id] = {
             'id': _id,
             'show_name': dv.get('show_name') or _id,
+            'offline': dv.get('offline', False),
             'app_name': app_name,
             'using': bool(dv.get('using')),
             'running': bool(dv.get('running')),
@@ -421,6 +423,7 @@ def device_set():
                 message='missing param or wrong param type'
             ), 400
     devices: dict = d.dget('device_status')
+    now_ts = datetime.now(pytz.timezone(env.main.timezone)).isoformat()
     heart_rate_val = d._extract_heart_rate((app_name_only if 'app_name_only' in locals() else None) or app_name)
     if (not device_using) and env.status.not_using:
         # 如未在使用且锁定了提示，则替换
@@ -429,8 +432,10 @@ def device_set():
         'show_name': device_show_name,
         'using': device_using,
         'app_name': app_name,
+        'offline': False,
+        'updated_at': now_ts,
         'heart_rate': (int(heart_rate_val) if heart_rate_val is not None else None),
-        'heart_updated_at': datetime.now(pytz.timezone(env.main.timezone)).isoformat()
+        'heart_updated_at': now_ts
     }
 
     # 记录应用上报事件（仅保存事件点），支持可选字段 app_pkg / app_name_only
