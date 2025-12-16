@@ -351,30 +351,6 @@ def query(ret_as_dict: bool = False):
     else:
         return u.format_dict(ret), 200
 
-
-@app.route('/api/usage/render-image', methods=['GET'])
-def render_usage_image():
-    """
-    聚合设备信息并以图片形式返回。
-
-    - Method: **GET**
-    - Path: `/api/usage/render-image`
-    """
-    try:
-        payload = query(ret_as_dict=True)
-        timezone = payload.get('timezone', env.main.timezone)
-        raw_devices = payload.get('device') or {}
-        device_models = build_device_view_models(raw_devices, timezone)
-        buffer = render_device_usage_image(device_models)
-    except Exception as e:
-        u.error(f"[render-image] {e}")
-        return u.reterr(
-            code='exception',
-            message=str(e)
-        ), 500
-    return flask.send_file(buffer, mimetype='image/png')
-
-
 @app.route('/status_list')
 def get_status_list():
     '''
