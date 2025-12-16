@@ -1012,6 +1012,16 @@ class data:
                     info['offline'] = True
                     info['using'] = False
                     info['app_name'] = '超时自动离线'
+                    try:
+                        # 追加一条“停止使用”事件，避免在自动离线后继续累计使用时长
+                        self.record_app_usage(
+                            device_id,
+                            info.get('app_name') or '超时自动离线',
+                            False,
+                            app_name_only='超时自动离线'
+                        )
+                    except Exception as e:
+                        u.warning(f'[mark_stale_devices_offline] failed to record stop event: {e}')
                     changed = True
             elif info.get('offline'):
                 info['offline'] = False
