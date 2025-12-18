@@ -29,7 +29,6 @@ class data:
     data: dict
     preload_data: dict
     data_check_interval: int = 60
-    HEART_KEEP_HOURS: int = 3
 
     def __init__(self):
         with open(u.get_path('data.template.jsonc'), 'r', encoding='utf-8') as file:
@@ -211,41 +210,8 @@ class data:
 
     # --- Heart rate helpers
 
-    def prune_heart_history(self, keep_hours: int = None) -> bool:
-        """
-        全量裁剪心率历史，避免长时间无新心率上报导致历史无限增长。
-        :return: 是否发生了变更（需要保存）
-        """
-        keep_hours = int(keep_hours or self.HEART_KEEP_HOURS)
-        try:
-            tz = pytz.timezone(env.main.timezone)
-        except Exception:
-            tz = None
-        now_dt = datetime.now(tz) if tz else datetime.utcnow()
-        cutoff_ts = (now_dt - timedelta(hours=keep_hours)).timestamp()
-
-        hist = self.data.get('heart_history', {})
-        if not isinstance(hist, dict) or not hist:
-            return False
-
-        changed = False
-        for device_id, lst in list(hist.items()):
-            if not isinstance(lst, list) or not lst:
-                continue
-            filtered = []
-            for e in lst:
-                ts = self._safe_parse_ts(e.get('time'))
-                if ts is None:
-                    continue
-                if ts >= cutoff_ts:
-                    filtered.append(e)
-            if len(filtered) != len(lst):
-                hist[device_id] = filtered
-                changed = True
-        return changed
-
     def record_heart_rate(self, device_id: str, heart_rate: float, when: datetime = None):
-        '''记录心率数据，默认仅保留最近 5 小时'''
+        '''记录心率数据，默认保留最近 48 小时'''
         try:
             tz = pytz.timezone(env.main.timezone)
         except Exception:
@@ -256,7 +222,7 @@ class data:
         lst = hist.setdefault(device_id, [])
         lst.append({'time': now_dt.isoformat(), 'value': float(heart_rate)})
 
-        cutoff = (now_dt - timedelta(hours=self.HEART_KEEP_HOURS)).timestamp()
+        cutoff = (now_dt - timedelta(hours=48)).timestamp()
         filtered = []
         for e in lst:
             ts = self._safe_parse_ts(e.get('time'))
@@ -330,6 +296,22 @@ class data:
 
     def get_metrics_resp(self, json_only: bool = False):
         now = datetime.now(pytz.timezone(env.main.timezone))
+        '''
+        if json_only:
+            # 仅用于调试
+            return {
+                'time': f'{now}',
+                'timezone': env.main.timezone,
+                'today_is': self.data['metrics']['today_is'],
+                'month_is': self.data['metrics']['month_is'],
+                'year_is': self.data['metrics']['year_is'],
+                'today': self.data['metrics']['today'],
+                'month': self.data['metrics']['month'],
+                'year': self.data['metrics']['year'],
+                'total': self.data['metrics']['total']
+            }
+        else:
+        '''
         return u.format_dict({
             'time': f'{now}',
             'timezone': env.main.timezone,
@@ -1029,8 +1011,7 @@ class data:
             if not last_seen_ts:
                 continue
 
-            # 修复：tz=None 时不能传给 datetime.fromtimestamp
-            last_seen = datetime.fromtimestamp(last_seen_ts, tz) if tz else datetime.fromtimestamp(last_seen_ts)
+            last_seen = datetime.fromtimestamp(last_seen_ts, tz)
 
             if last_seen < cutoff:
                 if not info.get('offline'):
@@ -1065,16 +1046,11 @@ class data:
         while True:
             sleep(self.data_check_interval)
             try:
-                # 心率历史全量裁剪（只保留最近 5 小时）
-                hr_changed = self.prune_heart_history(self.HEART_KEEP_HOURS)
-
                 self.mark_stale_devices_offline()  # 标记长时间未上报的设备
                 self.check_metrics_time()  # 检测是否跨日
                 self.check_device_status(trigged_by_timer=True)  # 检测设备状态并更新 status
                 file_data = self.load(ret=True)
-
-                # 若内存数据和文件不一致，或心率裁剪发生变更，保存
-                if hr_changed or (file_data != self.data):
+                if file_data != self.data:
                     self.save()
             except Exception as e:
                 u.warning(f'[timer_check] Error: {e}, retrying.')
